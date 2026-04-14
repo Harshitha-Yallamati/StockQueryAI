@@ -1,15 +1,17 @@
 import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Mail, Lock, Layout, ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Mail, Lock, User, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-export default function Login() {
-  const { login, googleLogin } = useAuth();
+export default function SignUp() {
+  const { signup, googleLogin } = useAuth();
+  const navigate = useNavigate();
   const { toast } = useToast();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,50 +20,69 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
+      await signup(email, password, name);
       toast({
-        title: "Success",
-        description: "Welcome back!",
+        title: "Account created",
+        description: "Welcome to StockQuery AI!",
       });
+      navigate("/");
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Login failed",
-        description: err.message || "Invalid credentials",
+        title: "Registration failed",
+        description: err.message || "Failed to create account",
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleSignup = async () => {
     try {
-      await googleLogin("mock-credential");
-      toast({
-        title: "Authenticated",
-        description: "Logged in with Google",
+      await googleLogin("mock-credential", {
+        name: "Google Explorer",
+        email: "explorer@google.com",
+        picture: "https://avatar.vercel.sh/google"
       });
+      toast({
+        title: "Signed up with Google",
+        description: "Registration successful!",
+      });
+      navigate("/");
     } catch (err) {
       toast({
         variant: "destructive",
-        title: "Auth Error",
-        description: "Google simulation failed.",
+        title: "Google sign up failed",
+        description: "Please try again later.",
       });
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-background to-background">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-primary/10 via-background to-background">
       <Card className="w-full max-w-md glass-card border-primary/20 shadow-2xl animate-slide-in">
         <CardHeader className="text-center space-y-1">
           <div className="mx-auto w-16 h-16 rounded-2xl bg-primary/5 flex items-center justify-center mb-4 p-2 shadow-inner border border-primary/10">
             <img src="/logo.svg" alt="StockQuery AI Logo" className="w-full h-full object-contain" />
           </div>
-          <CardTitle className="text-3xl font-bold tracking-tight">Welcome Back</CardTitle>
-          <CardDescription>Enter your credentials to access StockQuery AI</CardDescription>
+          <CardTitle className="text-3xl font-bold tracking-tight">Create Account</CardTitle>
+          <CardDescription>Join StockQuery AI to manage your inventory smarter</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Full Name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="pl-10"
+                  required
+                />
+              </div>
+            </div>
             <div className="space-y-2">
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -89,7 +110,7 @@ export default function Login() {
               </div>
             </div>
             <Button type="submit" className="w-full h-11 text-base font-semibold shadow-md shadow-primary/20" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? "Creating account..." : "Get Started"}
             </Button>
           </form>
 
@@ -98,11 +119,11 @@ export default function Login() {
               <div className="w-full border-t border-border"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+              <span className="bg-card px-2 text-muted-foreground">Or register with</span>
             </div>
           </div>
 
-          <Button variant="outline" className="w-full h-11 border-primary/20 hover:bg-primary/5 transition-colors" onClick={handleGoogleLogin}>
+          <Button variant="outline" className="w-full h-11 border-primary/20 hover:bg-primary/5 transition-colors" onClick={handleGoogleSignup}>
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -117,22 +138,18 @@ export default function Login() {
                 fill="#FBBC05"
               />
               <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 fill="#EA4335"
               />
             </svg>
-            Google OAuth (Mocked)
+            Sign up with Google
           </Button>
 
           <div className="text-center mt-6">
-            <Link to="/signup" className="text-sm text-primary hover:underline flex items-center justify-center gap-2">
-              Don't have an account? Sign Up <ArrowRight className="w-4 h-4" />
+            <Link to="/login" className="text-sm text-primary hover:underline flex items-center justify-center gap-2">
+              <ArrowLeft className="w-4 h-4" /> Already have an account? Sign In
             </Link>
           </div>
-
-          <p className="text-center text-xs text-muted-foreground mt-4 italic">
-            Note: Google Auth is currently simulated for local development.
-          </p>
         </CardContent>
       </Card>
     </div>

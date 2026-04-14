@@ -29,39 +29,55 @@ const isAuthenticated = (req, res, next) => {
 };
 
 // --- Auth Routes ---
+app.post('/api/auth/signup', (req, res) => {
+  const { email, password, name } = req.body;
+  
+  const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (existingUser) {
+    return res.status(400).json({ error: 'User already exists' });
+  }
+
+  try {
+    const hash = bcrypt.hashSync(password, 10);
+    const result = db.prepare('INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)')
+      .run(email, hash, name || email.split('@')[0]);
+    
+    req.session.userId = result.lastInsertRowid;
+    res.status(201).json({ id: result.lastInsertRowid, email, name: name || email.split('@')[0] });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   
-  // For demo: if user doesn't exist, create it with dummy password
-  if (!user) {
-    const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)')
-      .run(email, hash, email.split('@')[0]);
-    req.session.userId = result.lastInsertRowid;
-    return res.json({ id: result.lastInsertRowid, email, name: email.split('@')[0] });
-  }
-
-  if (bcrypt.compareSync(password, user.password_hash)) {
+  if (user && user.password_hash && bcrypt.compareSync(password, user.password_hash)) {
     req.session.userId = user.id;
     return res.json({ id: user.id, email: user.email, name: user.name });
   }
   
-  res.status(401).json({ error: 'Invalid credentials' });
+  res.status(401).json({ error: 'Invalid email or password' });
 });
 
 app.post('/api/auth/google', (req, res) => {
-  const { googleId, email, name } = req.body;
-  let user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
+  const { googleId, email, name, picture } = req.body;
+  let user = db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(googleId, email);
   
   if (!user) {
     const result = db.prepare('INSERT INTO users (email, google_id, name) VALUES (?, ?, ?)')
       .run(email, googleId, name);
     user = { id: result.lastInsertRowid, email, name };
+  } else if (!user.google_id) {
+    // Link existing email-based account to Google
+    db.prepare('UPDATE users SET google_id = ?, name = ? WHERE id = ?').run(googleId, name, user.id);
+    user.google_id = googleId;
+    user.name = name;
   }
   
   req.session.userId = user.id;
-  res.json(user);
+  res.json({ ...user, picture });
 });
 
 app.get('/api/auth/me', (req, res) => {
