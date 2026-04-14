@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = 'http://localhost:8000/api';
 
 export async function fetchStats() {
   const res = await fetch(`${API_BASE}/dashboard/stats`);
@@ -53,11 +53,14 @@ export async function deleteProduct(id: number) {
 }
 
 export async function sendChatMessage(message: string) {
-  const res = await fetch(`${API_BASE}/chat`, {
+  // Directs specifically to the new Python FastAPI Backend
+  const res = await fetch(`http://localhost:8000/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ question: message })
   });
-  if (!res.ok) throw new Error('Failed to send message');
-  return res.json();
+  if (!res.ok) throw new Error('Failed to send message to AI Agent');
+  const data = await res.json();
+  // Map the FastAPI "answer" field to what the frontend expects ("response")
+  return { response: data.answer, thought: "Processed natively by local Ollama engine", tool_results: [] };
 }
