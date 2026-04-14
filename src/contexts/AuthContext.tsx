@@ -1,9 +1,20 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { auth } from '@/lib/firebase';
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged,
+  updateProfile
+} from 'firebase/auth';
 
 interface User {
-  id: number;
+  id: string;
   email: string;
   name: string;
+  picture?: string;
 }
 
 interface AuthContextType {
@@ -11,7 +22,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
-  googleLogin: (credential: string, profile?: { name: string, email: string, picture?: string }) => Promise<void>;
+  googleLogin: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -22,71 +33,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        setUser(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+          picture: firebaseUser.photoURL || undefined
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const login = async (email: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.error || 'Login failed');
-    }
-    const data = await res.json();
-    setUser(data);
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
   const signup = async (email: string, password: string, name: string) => {
-    const res = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name })
-    });
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.error || 'Signup failed');
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    if (userCredential.user) {
+      await updateProfile(userCredential.user, { displayName: name });
+      setUser({
+        id: userCredential.user.uid,
+        email: userCredential.user.email || email,
+        name: name,
+        picture: userCredential.user.photoURL || undefined
+      });
     }
-    const data = await res.json();
-    setUser(data);
   };
 
-  const googleLogin = async (credential: string, profile?: { name: string, email: string, picture?: string }) => {
-    // In a real app, you'd verify the JWT from Google on the backend
-    // For this demo, we'll simulate it with the provided profile or defaults
-    const payload = profile || { 
-      googleId: 'google-demo-id', 
-      email: 'demo@google.com', 
-      name: 'Google User',
-      picture: 'https://cdn-icons-png.flaticon.com/512/281/281764.png'
-    };
-
-    const res = await fetch('/api/auth/google', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        googleId: payload.googleId || 'google-demo-id',
-        email: payload.email,
-        name: payload.name,
-        picture: payload.picture
-      })
-    });
-    if (!res.ok) throw new Error('Google login failed');
-    const data = await res.json();
-    setUser(data);
+  const googleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
   };
 
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    setUser(null);
+    await signOut(auth);
   };
 
   return (

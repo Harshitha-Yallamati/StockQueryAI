@@ -39,21 +39,17 @@ export default function SignUp() {
 
   const handleGoogleSignup = async () => {
     try {
-      await googleLogin("mock-credential", {
-        name: "Google Explorer",
-        email: "explorer@google.com",
-        picture: "https://avatar.vercel.sh/google"
-      });
+      await googleLogin();
       toast({
         title: "Signed up with Google",
         description: "Registration successful!",
       });
       navigate("/");
-    } catch (err) {
+    } catch (err: any) {
       toast({
         variant: "destructive",
         title: "Google sign up failed",
-        description: "Please try again later.",
+        description: err.message || "Please try again later.",
       });
     }
   };

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Package, DollarSign, AlertTriangle, TrendingUp, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/contexts/AuthContext";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { fetchStats, fetchInventory } from "@/lib/api";
 
@@ -26,6 +27,7 @@ type InventoryItem = {
 };
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
 
@@ -56,6 +58,27 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-slide-in">
+      {/* Welcome Section */}
+      <Card className="glass-card bg-primary/5 border-primary/20">
+        <CardContent className="p-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-foreground">Welcome back, {user?.name || user?.email || "User"}! 👋</h2>
+            <p className="text-sm text-muted-foreground mt-1">Here's what's happening with your inventory today.</p>
+          </div>
+          <div className="hidden sm:block">
+            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-sm overflow-hidden">
+               {user?.picture ? (
+                 <img src={user.picture} alt="Profile" className="w-full h-full object-cover" />
+               ) : (
+                 <span className="text-primary font-bold text-xl">
+                   {(user?.name ? user.name[0] : user?.email?.[0] || 'U').toUpperCase()}
+                 </span>
+               )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((stat) => (

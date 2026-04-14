@@ -5,9 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- TODO: Set the document title to the name of your application -->
     <title>StockQuery AI</title>
+    <!-- Temporary Error Catcher -->
+    <script>
+      window.addEventListener("error", function(e) {
+        const errDiv = document.createElement("div");
+        errDiv.style = "color:red;z-index:9999;position:fixed;top:0;left:0;padding:20px;background:white;width:100%;height:100%;overflow:auto;font-family:monospace;";
+        errDiv.innerText = "CRASH LOG:\n" + (e.error ? e.error.stack : e.message);
+        document.body.appendChild(errDiv);
+      });
+      window.addEventListener("unhandledrejection", function(e) {
+        const errDiv = document.createElement("div");
+        errDiv.style = "color:red;z-index:9999;position:fixed;top:0;left:0;padding:20px;background:white;width:100%;height:100%;overflow:auto;font-family:monospace;";
+        errDiv.innerText = "PROMISE REJECTION:\n" + (e.reason ? e.reason.stack || e.reason : e);
+        document.body.appendChild(errDiv);
+      });
+    </script>
     <meta name="description" content="StockQuery AI - Inventory Intelligence" />
     <meta name="author" content="StockQuery AI" />
 
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta property="og:title" content="StockQuery AI" />
     <meta property="og:description" content="Inventory Intelligence and AI-powered Querying" />
     <meta property="og:type" content="website" />

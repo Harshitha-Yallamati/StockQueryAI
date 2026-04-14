@@ -1,7 +1,9 @@
+import { Link, useLocation } from "react-router-dom";
 import { LayoutDashboard, MessageSquare, Package, AlertTriangle, Menu, X, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { useState } from "react";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },

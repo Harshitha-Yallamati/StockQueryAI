@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Mail, Lock, Layout, ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Login() {
   const { login, googleLogin } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,6 +24,7 @@ export default function Login() {
         title: "Success",
         description: "Welcome back!",
       });
+      navigate("/");
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -36,16 +38,17 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     try {
-      await googleLogin("mock-credential");
+      await googleLogin();
       toast({
         title: "Authenticated",
         description: "Logged in with Google",
       });
-    } catch (err) {
+      navigate("/");
+    } catch (err: any) {
       toast({
         variant: "destructive",
         title: "Auth Error",
-        description: "Google simulation failed.",
+        description: err.message || "Google login failed.",
       });
     }
   };
@@ -121,7 +124,7 @@ export default function Login() {
                 fill="#EA4335"
               />
             </svg>
-            Google OAuth (Mocked)
+            Google OAuth
           </Button>
 
           <div className="text-center mt-6">
@@ -130,9 +133,7 @@ export default function Login() {
             </Link>
           </div>
 
-          <p className="text-center text-xs text-muted-foreground mt-4 italic">
-            Note: Google Auth is currently simulated for local development.
-          </p>
+          {/* Removed Mocked notice */}
         </CardContent>
       </Card>
     </div>
