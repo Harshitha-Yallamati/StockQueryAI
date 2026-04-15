@@ -39,21 +39,33 @@ export default function Dashboard() {
   const totalUnits = inventory.reduce((s, p) => s + p.stock_quantity, 0);
 
   const categories = Array.from(new Set(inventory.map(p => p.category)));
-  const categoryData = categories.map(c => {
+  const allCategoryData = categories.map(c => {
     const productsInCat = inventory.filter(p => p.category === c);
     return {
       name: c,
       value: productsInCat.reduce((s, p) => s + p.price * p.stock_quantity, 0),
     };
-  }).filter(c => c.value > 0);
+  }).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
 
-  const pieData = categoryData.map(c => ({ name: c.name, value: Math.round(c.value) }));
+  // For the Bar Chart, show Top 10 to keep it readable
+  const topCategories = allCategoryData.slice(0, 10);
+
+  // For the Pie Chart, group the rest into "Others"
+  const pieData = allCategoryData.length > 8 
+    ? [
+        ...allCategoryData.slice(0, 7).map(c => ({ name: c.name, value: Math.round(c.value) })),
+        { 
+          name: "Others", 
+          value: Math.round(allCategoryData.slice(7).reduce((sum, c) => sum + c.value, 0)) 
+        }
+      ]
+    : allCategoryData.map(c => ({ name: c.name, value: Math.round(c.value) }));
 
   const statCards = [
-    { label: "Total Products", value: stats?.totalProducts ?? 0, icon: Package, change: "+New", up: true },
-    { label: "Total Value", value: `$${((stats?.totalValue ?? 0) / 1000).toFixed(1)}K`, icon: DollarSign, change: "Live", up: true },
-    { label: "Low Stock Items", value: stats?.lowStock ?? 0, icon: AlertTriangle, change: `${stats?.lowStock ?? 0}`, up: false },
-    { label: "Total Units", value: totalUnits.toLocaleString(), icon: TrendingUp, change: "Live", up: true },
+    { label: "Total Products", value: stats?.totalProducts ?? 0, icon: Package, change: "Live", up: true },
+    { label: "Inventory Value", value: `$${(stats?.totalValue ?? 0).toLocaleString()}`, icon: DollarSign, change: "Current", up: true },
+    { label: "Low Stock Items", value: stats?.lowStock ?? 0, icon: AlertTriangle, change: `${stats?.lowStock ?? 0} Alerts`, up: false },
+    { label: "Total Units", value: totalUnits.toLocaleString(), icon: TrendingUp, change: "Active", up: true },
   ];
 
   return (
@@ -71,7 +83,7 @@ export default function Dashboard() {
                  <img src={user.picture} alt="Profile" className="w-full h-full object-cover" />
                ) : (
                  <span className="text-primary font-bold text-xl">
-                   {(user?.name ? user.name[0] : user?.email?.[0] || 'U').toUpperCase()}
+                    {(user?.name ? user.name[0] : user?.email?.[0] || 'U').toUpperCase()}
                  </span>
                )}
             </div>
@@ -104,17 +116,17 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="glass-card lg:col-span-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Inventory Value by Category</CardTitle>
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Top 10 Categories by Value</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={categoryData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <BarChart data={topCategories} margin={{ top: 5, right: 30, left: 10, bottom: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 15%, 90%)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" height={60} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" height={60} interval={0} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
-                  <Tooltip formatter={(v: number) => [`$${v.toLocaleString()}`, "Value"]} />
-                  <Bar dataKey="value" fill="hsl(217, 70%, 45%)" radius={[4, 4, 0, 0]} />
+                  <Tooltip formatter={(v: number) => [`$${v.toLocaleString()}`, "Estimated Value"]} cursor={{fill: 'hsl(var(--primary) / 0.05)'}} />
+                  <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -123,14 +135,14 @@ export default function Dashboard() {
 
         <Card className="glass-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Category Distribution</CardTitle>
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Inventory Breakdown</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-                    {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={2} dataKey="value">
+                    {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} stroke="transparent" />)}
                   </Pie>
                   <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
                 </PieChart>

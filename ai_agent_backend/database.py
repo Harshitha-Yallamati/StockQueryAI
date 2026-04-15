@@ -22,6 +22,19 @@ def init_db():
         )
     ''')
     
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            product_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            total_cost REAL NOT NULL,
+            status TEXT DEFAULT 'Pending',
+            order_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -66,6 +79,44 @@ def delete_product(product_id: int):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("DELETE FROM products WHERE id=?", (product_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_orders() -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM orders ORDER BY order_date DESC')
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def place_order(data: dict) -> int:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO orders (product_id, product_name, quantity, total_cost) VALUES (?, ?, ?, ?)",
+        (data["product_id"], data["product_name"], int(data["quantity"]), float(data["total_cost"]))
+    )
+    order_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return order_id
+
+def update_order_status(order_id: int, status: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    if status == "Arrived":
+        # First, get the order details to update stock
+        c.execute("SELECT product_id, quantity FROM orders WHERE id=?", (order_id,))
+        order = c.fetchone()
+        if order:
+            c.execute(
+                "UPDATE products SET quantity = quantity + ? WHERE id = ?",
+                (order["quantity"], order["product_id"])
+            )
+            
+    c.execute("UPDATE orders SET status=? WHERE id=?", (status, order_id))
     conn.commit()
     conn.close()
 

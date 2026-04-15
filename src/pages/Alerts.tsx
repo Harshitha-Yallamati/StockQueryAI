@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { fetchAlerts } from "@/lib/api";
+import { fetchAlerts, placeOrder } from "@/lib/api";
 
 type AlertItem = {
   product_id: number;
@@ -19,19 +19,49 @@ type AlertItem = {
 
 export default function Alerts() {
   const [lowStock, setLowStock] = useState<AlertItem[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [showAllCategories, setShowAllCategories] = useState(false);
+
+  const loadAlerts = () => {
+    fetchAlerts().then(setLowStock).catch(console.error);
+  };
 
   useEffect(() => {
-    fetchAlerts().then(setLowStock).catch(console.error);
+    loadAlerts();
   }, []);
 
-  const totalDeficitCost = lowStock.reduce((s, p) => {
+  const categories = Array.from(new Set(lowStock.map(p => p.category))).sort();
+  const displayedCategories = showAllCategories ? categories : categories.slice(0, 5);
+
+  const filtered = lowStock.filter(p => {
+    if (categoryFilter && p.category !== categoryFilter) return false;
+    return true;
+  });
+
+  const totalDeficitCost = filtered.reduce((s, p) => {
     // Assuming a generic reorder level of 10 for all alerts
     const deficit = Math.max(0, 10 - p.stock_quantity);
     return s + deficit * p.price;
   }, 0);
 
-  const handleRestock = (productName: string) => {
-    toast.success(`Purchase order generated for ${productName}`);
+  const handleRestock = async (product: AlertItem) => {
+    try {
+      const reorder_level = 10;
+      const deficit = Math.max(0, reorder_level - product.stock_quantity);
+      const total_cost = deficit * product.price;
+
+      await placeOrder({
+        product_id: product.product_id,
+        product_name: product.product_name,
+        quantity: deficit,
+        total_cost: total_cost
+      });
+
+      toast.success(`Purchase order generated for ${product.product_name}`);
+      loadAlerts(); // Refresh list to reflect that we've initiated restock
+    } catch (e) {
+      toast.error("Failed to place restock order");
+    }
   };
 
   return (
@@ -44,7 +74,7 @@ export default function Alerts() {
               <AlertTriangle className="w-5 h-5 text-warning" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">{lowStock.length}</p>
+              <p className="text-2xl font-bold text-foreground">{filtered.length}</p>
               <p className="text-xs text-muted-foreground">Items Need Restocking</p>
             </div>
           </CardContent>
@@ -55,7 +85,7 @@ export default function Alerts() {
               <Package className="w-5 h-5 text-destructive" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">{lowStock.filter(p => p.stock_quantity === 0).length}</p>
+              <p className="text-2xl font-bold text-foreground">{filtered.filter(p => p.stock_quantity === 0).length}</p>
               <p className="text-xs text-muted-foreground">Out of Stock</p>
             </div>
           </CardContent>
@@ -73,9 +103,33 @@ export default function Alerts() {
         </Card>
       </div>
 
+      {/* Filters */}
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center bg-card/50 p-3 rounded-xl border border-border/50">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-2">Filter By:</span>
+          {displayedCategories.map(c => (
+            <button
+              key={c}
+              onClick={() => setCategoryFilter(c === categoryFilter ? null : c)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${categoryFilter === c ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "bg-card text-muted-foreground border border-border hover:bg-muted"}`}
+            >
+              {c}
+            </button>
+          ))}
+          {categories.length > 5 && (
+            <button
+              onClick={() => setShowAllCategories(!showAllCategories)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+            >
+              {showAllCategories ? "Show Less" : `+${categories.length - 5} more`}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Alert Cards */}
       <div className="space-y-3">
-        {lowStock.sort((a, b) => a.stock_quantity - b.stock_quantity).map(p => {
+        {filtered.sort((a, b) => a.stock_quantity - b.stock_quantity).map(p => {
           const reorder_level = 10;
           const deficit = Math.max(0, reorder_level - p.stock_quantity);
           const restockCost = deficit * p.price;
@@ -117,7 +171,7 @@ export default function Alerts() {
                         <p className="text-xs text-muted-foreground">Deficit</p>
                       </div>
                     </div>
-                    <Button onClick={() => handleRestock(p.product_name)} size="sm">
+                    <Button onClick={() => handleRestock(p)} size="sm">
                       Restock
                     </Button>
                   </div>

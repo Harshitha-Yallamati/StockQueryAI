@@ -19,8 +19,8 @@ def add_knowledge(doc_id: str, text: str, metadata: dict = None):
     """
     Ingests unstructured text into the RAG database for semantic search later.
     """
-    if metadata is None:
-        metadata = {}
+    if not metadata:
+        metadata = {"source": "manual_ingest"}
         
     collection.add(
         documents=[text],
@@ -28,7 +28,7 @@ def add_knowledge(doc_id: str, text: str, metadata: dict = None):
         ids=[doc_id]
     )
 
-def search_knowledge_base(query: str, n_results: int = 3) -> dict:
+def search_knowledge_base(query: str, n_results: int = 2) -> dict:
     """
     Uses vector similarity to find unstructured information related to the user's query.
     Returns the raw chunks to the agent.

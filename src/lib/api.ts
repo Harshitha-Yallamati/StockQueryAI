@@ -53,14 +53,37 @@ export async function deleteProduct(id: number) {
 }
 
 export async function sendChatMessage(message: string) {
-  // Directs specifically to the new Python FastAPI Backend
   const res = await fetch(`http://localhost:8000/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question: message })
   });
-  if (!res.ok) throw new Error('Failed to send message to AI Agent');
-  const data = await res.json();
-  // Map the FastAPI "answer" field to what the frontend expects ("response")
-  return { response: data.answer, thought: "Processed natively by local Ollama engine", tool_results: [] };
+  if (!res.ok) throw new Error('Failed to reach AI Agent');
+  return res;
+}
+
+export async function fetchOrders() {
+  const res = await fetch(`${API_BASE}/orders`);
+  if (!res.ok) throw new Error('Failed to fetch orders');
+  return res.json();
+}
+
+export async function placeOrder(order: any) {
+  const res = await fetch(`${API_BASE}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(order)
+  });
+  if (!res.ok) throw new Error('Failed to place order');
+  return res.json();
+}
+
+export async function updateOrderStatus(id: number, status: string) {
+  const res = await fetch(`${API_BASE}/orders/${id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error('Failed to update order status');
+  return res.json();
 }

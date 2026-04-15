@@ -107,7 +107,10 @@ export default function Products() {
     }
   };
 
-  const categories = Array.from(new Set(products.map(p => p.category)));
+  const [showAllCategories, setShowAllCategories] = useState(false);
+
+  const categories = Array.from(new Set(products.map(p => p.category))).sort();
+  const displayedCategories = showAllCategories ? categories : categories.slice(0, 5);
 
   const filtered = products.filter(p => {
     if (categoryFilter && p.category !== categoryFilter) return false;
@@ -145,7 +148,7 @@ export default function Products() {
           
           <div className="h-6 w-[1px] bg-border mx-1 hidden sm:block" />
 
-          {categories.map(c => (
+          {displayedCategories.map(c => (
             <button
               key={c}
               onClick={() => setCategoryFilter(c === categoryFilter ? null : c)}
@@ -154,6 +157,15 @@ export default function Products() {
               {c}
             </button>
           ))}
+          
+          {categories.length > 5 && (
+            <button
+              onClick={() => setShowAllCategories(!showAllCategories)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-muted hover:bg-muted/80 text-muted-foreground transition-colors"
+            >
+              {showAllCategories ? "Show Less" : `+${categories.length - 5} more`}
+            </button>
+          )}
         </div>
       </div>
 

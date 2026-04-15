@@ -1,19 +1,17 @@
 import json
+import asyncio
 from openai import OpenAI
 import tools as inventory_tools
 import rag
 
 # Configure the standard OpenAI SDK to point to your local Ollama instance.
-# Note: For tool calling to work perfectly, you need an Ollama model that supports it,
-# like "llama3.1", "llama3.2", "qwen2.5", or "mistral". We default to "llama3.1".
 client = OpenAI(
     base_url='http://localhost:11434/v1',
-    api_key='ollama',  # required by the SDK but not verified by Ollama
+    api_key='ollama',
 )
 
-OLLAMA_MODEL = "llama3.1"
+OLLAMA_MODEL = "qwen2.5:1.5b"
 
-# Define the JSON schemas for the tools we want to make available to the LLM.
 TOOLS_SCHEMA = [
     {
         "type": "function",
@@ -25,7 +23,7 @@ TOOLS_SCHEMA = [
                 "properties": {
                     "product_name": {
                         "type": "string",
-                        "description": "The name of the product, e.g., 'Laptops' or 'Wireless Mice'"
+                        "description": "The name of the product"
                     }
                 },
                 "required": ["product_name"]
@@ -82,13 +80,13 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "search_knowledge_base",
-            "description": "Perform a semantic vector search on unstructured company knowledge, manuals, policies, or detailed textual descriptions of products.",
+            "description": "Perform a semantic vector search on unstructured company knowledge, manuals, or policies.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The exact natural language search phrase you want to embed and retrieve context for."
+                        "description": "The search phrase to retrieve context for."
                     }
                 },
                 "required": ["query"]
@@ -97,22 +95,37 @@ TOOLS_SCHEMA = [
     }
 ]
 
-def run_agent(user_message: str, message_history: list = None) -> str:
+async def stream_agent(user_message: str, message_history: list = None):
     """
-    Executes the conversational agent loop.
-    1. Sends the user's message and tools to the LLM.
-    2. Checks if the LLM decided to call a tool.
-    3. Executes the local Python tool.
-    4. Submits the tool result back to the LLM for a final natural language answer.
+    Executes the conversational agent loop with async streaming support.
     """
     if message_history is None:
         message_history = []
-        
+
+    # --- Short-Circuit Logic (Performance Boost) ---
+    query_lower = user_message.lower()
+    short_circuit_keywords = ["stock", "price", "how many", "quantity", "inventory"]
+    
+    if any(k in query_lower for k in short_circuit_keywords):
+        # We try to use the raw query as the product name for a fast lookup
+        # This works well if the user just asks "Laptops stock" or similar.
+        # We'll use a simplified regex-less extraction or just the last few words.
+        cleaned_query = query_lower.replace("stock", "").replace("price", "").replace("how many", "").replace("quantity", "").strip()
+        if cleaned_query:
+            result = inventory_tools.get_product_details(cleaned_query)
+            if "error" not in result:
+                yield json.dumps({"type": "thought", "content": "Instant lookup triggered ⚡"}) + "\n"
+                response = f"I found **{result['name']}** in the database. Its current price is ${result['price']} and there are **{result['quantity']}** units in stock."
+                yield json.dumps({"type": "content", "content": response}) + "\n"
+                return
+
     messages = [
-        {"role": "system", "content": "You are an intelligent inventory assistant. Answer queries using the database tools provided. If a tool returns an error, explain it gracefully to the user."}
+        {"role": "system", "content": "You are an intelligent inventory assistant. Answer queries using the database tools provided. Be concise and helpful."}
     ]
     messages.extend(message_history)
     messages.append({"role": "user", "content": user_message})
+
+    yield json.dumps({"type": "thought", "content": f"Processing with {OLLAMA_MODEL}..."}) + "\n"
 
     # First LLM call
     try:
@@ -123,31 +136,33 @@ def run_agent(user_message: str, message_history: list = None) -> str:
             temperature=0.0
         )
     except Exception as e:
-        return f"Error connecting to Ollama: {str(e)}. Please make sure Ollama is running (`ollama run {OLLAMA_MODEL}`)."
+        yield json.dumps({"type": "content", "content": f"Error connecting to Ollama: {str(e)}"}) + "\n"
+        return
 
     response_message = response.choices[0].message
     tool_calls = response_message.tool_calls
 
-    # Check if the LLM wants to call a function
     if tool_calls:
         messages.append(response_message)
         
-        # We handle multiple tool calls if the model requests them in sequence
         for tool_call in tool_calls:
             function_name = tool_call.function.name
             function_args = json.loads(tool_call.function.arguments)
             
-            # Map the LLM's requested function to our local Python module
+            yield json.dumps({"type": "tool", "name": function_name, "args": function_args}) + "\n"
+            
+            # Map tool to local module
             if hasattr(inventory_tools, function_name):
                 function_to_call = getattr(inventory_tools, function_name)
+                # Ensure it's not a blocking call if it was async, 
+                # but these are standard sync DB calls.
                 function_response = function_to_call(**function_args)
             elif hasattr(rag, function_name):
                 function_to_call = getattr(rag, function_name)
                 function_response = function_to_call(**function_args)
             else:
-                function_response = {"error": f"Tool '{function_name}' not found in any internal systems."}
+                function_response = {"error": f"Tool '{function_name}' not found."}
                 
-            # Append the result of the tool to the conversation history
             messages.append({
                 "tool_call_id": tool_call.id,
                 "role": "tool",
@@ -155,16 +170,21 @@ def run_agent(user_message: str, message_history: list = None) -> str:
                 "content": json.dumps(function_response),
             })
             
-        # Second LLM call: LLM sees the tool output and drafts a final response
+        # Second LLM call: Streaming response
         try:
             second_response = client.chat.completions.create(
                 model=OLLAMA_MODEL,
                 messages=messages,
-                temperature=0.2
+                temperature=0.2,
+                stream=True
             )
-            return second_response.choices[0].message.content
+            for chunk in second_response:
+                if chunk.choices[0].delta.content:
+                    yield json.dumps({"type": "content", "content": chunk.choices[0].delta.content}) + "\n"
         except Exception as e:
-            return f"Error parsing tool output with Ollama: {str(e)}"
+            yield json.dumps({"type": "content", "content": f"Error streaming response: {str(e)}"}) + "\n"
             
-    # If no tool was called, return the direct LLM response
-    return response_message.content
+    else:
+        # direct content without tool calls
+        yield json.dumps({"type": "content", "content": response_message.content}) + "\n"
+

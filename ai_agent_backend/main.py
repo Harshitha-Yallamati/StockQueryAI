@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
 import database as db
-from agent import run_agent
+from agent import stream_agent
 import rag
 
 # Initialize logging
@@ -40,32 +40,21 @@ class IngestRequest(BaseModel):
 # In production, this should be scoped per-user/session in a database.
 session_history = []
 
-@app.post("/ask", response_model=AskResponse)
+from fastapi.responses import StreamingResponse
+from agent import stream_agent
+
+@app.post("/ask")
 async def ask_question(req: AskRequest):
     """
-    Accepts a natural language query about the inventory, uses Ollama 
-    tool calling to fetch data, and returns the response.
+    Accepts a natural language query, uses Ollama tool calling, 
+    and returns a streaming response.
     """
     logger.info(f"Received question: {req.question}")
     
-    try:
-        # Pass question and history to our agent engine
-        answer = run_agent(req.question, message_history=session_history)
-        
-        # Save standard history locally (preventing infinite memory growth via simple slice)
-        session_history.append({"role": "user", "content": req.question})
-        session_history.append({"role": "assistant", "content": answer})
-        
-        # Keep only the last 10 interactions for memory constraints
-        if len(session_history) > 20:
-            session_history.pop(0)
-            session_history.pop(0)
-            
-        return AskResponse(answer=answer)
-    
-    except Exception as e:
-        logger.error(f"Error handling /ask request: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal AI Engine Error")
+    return StreamingResponse(
+        stream_agent(req.question, message_history=session_history),
+        media_type="text/event-stream"
+    )
 
 @app.post("/ingest")
 async def ingest_document(req: IngestRequest):
@@ -96,7 +85,9 @@ def get_inventory():
         "stock_quantity": p["quantity"],
         "price": p["price"],
         "category": p["category"],
-        "brand": "N/A"
+        "brand": p.get("brand", "N/A"),
+        "warehouse_location": p.get("warehouse_location", "N/A"),
+        "supplier": p.get("supplier", "N/A")
     } for p in products]
 
 @app.post("/api/inventory")
@@ -127,14 +118,41 @@ def remove_inventory(product_id: int):
 @app.get("/api/alerts")
 def get_alerts():
     products = db.get_all_products()
-    # Filter and format for alerts UI
+    # Filter for alerts UI (stock < 10)
     alerts = [p for p in products if p["quantity"] < 10]
     return [{
         "product_id": p["id"],
         "product_name": p["name"],
         "stock_quantity": p["quantity"],
-        "category": p["category"]
+        "category": p["category"],
+        "price": p["price"],
+        "brand": p.get("brand", "N/A"),
+        "supplier": p.get("supplier", "N/A"),
+        "warehouse_location": p.get("warehouse_location", "N/A")
     } for p in alerts]
+
+@app.get("/api/orders")
+def get_orders():
+    return db.get_all_orders()
+
+@app.post("/api/orders")
+def place_order_api(payload: Dict[Any, Any]):
+    try:
+        order_id = db.place_order(payload)
+        return {"id": order_id, "status": "Pending"}
+    except Exception as e:
+        logger.error(f"Failed to place order: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/orders/{order_id}/status")
+def update_order_status_api(order_id: int, payload: Dict[Any, Any]):
+    try:
+        status = payload.get("status")
+        db.update_order_status(order_id, status)
+        return {"message": f"Order status updated to {status}"}
+    except Exception as e:
+        logger.error(f"Failed to update order status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def health_check():

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, Package, AlertTriangle, Menu, X, LogOut } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Package, AlertTriangle, Menu, X, LogOut, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
@@ -9,6 +9,7 @@ const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/chat", icon: MessageSquare, label: "AI Chat" },
   { to: "/products", icon: Package, label: "Products" },
+  { to: "/orders", icon: ShoppingCart, label: "Orders" },
   { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
 ];
 

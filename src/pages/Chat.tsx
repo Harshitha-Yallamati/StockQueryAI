@@ -1,52 +1,27 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { sendChatMessage } from "@/lib/api";
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  thought?: string;
-  toolCalls?: { tool: string, output: unknown }[];
-}
-
-const SUGGESTIONS = [
-  "What is currently in stock?",
-  "Tell me about iPhone 15 Pro",
-  "Any items with low stock levels?",
-];
+import { useChat } from "@/contexts/ChatContext";
 
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { messages, isLoading, sendMessage } = useChat();
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  const handleSend = async (text?: string) => {
+  const onSend = async (text?: string) => {
     const query = text ?? input.trim();
     if (!query || isLoading) return;
     setInput("");
-    
-    const userMsg: Message = { role: "user", content: query };
-    setMessages(prev => [...prev, userMsg]);
-    setIsLoading(true);
-
-    try {
-      const data = await sendChatMessage(query);
-      setMessages(prev => [...prev, { 
-        role: "assistant", 
-        content: data.response, 
-        thought: data.thought,
-        toolCalls: data.tool_results 
-      }]);
-    } catch (e) {
-      setMessages(prev => [...prev, { role: "assistant", content: "There was an error reaching the agent." }]);
-    } finally {
-      setIsLoading(false);
-    }
+    await sendMessage(query);
   };
+
+  const SUGGESTIONS = [
+    "What is currently in stock?",
+    "Tell me about iPhone 15 Pro",
+    "Any items with low stock levels?",
+  ];
 
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] animate-slide-in">
@@ -64,9 +39,9 @@ export default function Chat() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg w-full">
               {SUGGESTIONS.map(s => (
                 <button
-                  key={s}
-                  onClick={() => handleSend(s)}
-                  className="text-left text-sm px-3 py-2.5 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-foreground"
+                   key={s}
+                   onClick={() => onSend(s)}
+                   className="text-left text-sm px-3 py-2.5 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-foreground"
                 >
                   {s}
                 </button>
@@ -85,25 +60,8 @@ export default function Chat() {
              <div className={`max-w-[85%] ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-2.5 shadow-md shadow-primary/10" : ""}`}>
                {msg.role === "assistant" ? (
                  <div className="space-y-3">
-                   {msg.thought && (
-                     <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-2 mb-1 opacity-70">
-                       <Sparkles className="w-3 h-3" /> Agent Thought: {msg.thought}
-                     </div>
-                   )}
-                   
-                   {msg.toolCalls && msg.toolCalls.length > 0 && (
-                     <div className="flex flex-col gap-2 mb-3 bg-muted/50 border border-border/50 rounded-xl overflow-hidden">
-                       {msg.toolCalls.map((t, j) => (
-                         <div key={j} className="p-3">
-                           <div className="flex items-center gap-2 text-xs font-mono text-primary mb-2">
-                             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                             Executing {t.tool}...
-                           </div>
-                           <pre className="text-[11px] font-mono overflow-x-auto max-h-[150px] p-2 bg-card/50 border rounded-lg scrollbar-thin">{JSON.stringify(t.output, null, 2)}</pre>
-                         </div>
-                       ))}
-                     </div>
-                   )}
+                   {/* Technical logs hidden for cleaner UI as per user request */}
+
 
                    <div className="text-sm text-foreground prose prose-sm max-w-none leading-relaxed"
                      dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
@@ -138,7 +96,7 @@ export default function Chat() {
       {/* Input */}
       <div className="border-t border-border pt-4 pb-2">
         <form
-          onSubmit={e => { e.preventDefault(); handleSend(); }}
+          onSubmit={e => { e.preventDefault(); onSend(); }}
           className="flex gap-2"
         >
           <input
@@ -164,3 +122,4 @@ function renderMarkdown(md: string): string {
     .replace(/\n- /g, "<br/>• ")
     .replace(/\n/g, "<br/>");
 }
+
