@@ -25,11 +25,11 @@ export default function Login() {
         description: "Welcome back!",
       });
       navigate("/");
-    } catch (err: any) {
+    } catch (err) {
       toast({
         variant: "destructive",
         title: "Login failed",
-        description: err.message || "Invalid credentials",
+        description: getErrorMessage(err, "Invalid credentials"),
       });
     } finally {
       setLoading(false);
@@ -44,11 +44,11 @@ export default function Login() {
         description: "Logged in with Google",
       });
       navigate("/");
-    } catch (err: any) {
+    } catch (err) {
       toast({
         variant: "destructive",
         title: "Auth Error",
-        description: err.message || "Google login failed.",
+        description: getErrorMessage(err, "Google login failed."),
       });
     }
   };
@@ -138,4 +138,8 @@ export default function Login() {
       </Card>
     </div>
   );
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }

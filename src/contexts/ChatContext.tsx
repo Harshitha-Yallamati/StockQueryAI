@@ -1,15 +1,11 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { sendChatMessage } from '@/lib/api';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
-export interface Message {
-  role: "user" | "assistant";
-  content: string;
-  thought?: string;
-  toolCalls?: { tool: string, output: unknown }[];
-}
+import { clearChatSession, sendChatMessage } from "@/lib/api";
+import type { ChatMessage } from "@/lib/types";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ChatContextType {
-  messages: Message[];
+  messages: ChatMessage[];
   isLoading: boolean;
   sendMessage: (text: string) => Promise<void>;
   clearChat: () => void;
@@ -18,72 +14,54 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider = ({ children }: { children: ReactNode }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    setMessages([]);
+  }, [user?.id]);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
-    
-    // 1. Add user message
-    const userMsg: Message = { role: "user", content: text };
-    setMessages(prev => [...prev, userMsg]);
-    setIsLoading(true);
 
-    // 2. Add initial empty assistant message for streaming
-    const assistantMsg: Message = { role: "assistant", content: "", toolCalls: [] };
-    setMessages(prev => [...prev, assistantMsg]);
+    setIsLoading(true);
+    setMessages(prev => [
+      ...prev,
+      { role: "user", content: text },
+      { role: "assistant", content: "", toolCalls: [], status: "Analyzing your request..." },
+    ]);
 
     try {
-      const response = await sendChatMessage(text);
+      const response = await sendChatMessage(text, user?.id);
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
-      if (!reader) throw new Error("No reader available");
+      if (!reader) {
+        throw new Error("No reader available");
+      }
 
-      let accumulatedContent = "";
-      let accumulatedThought = "";
-      let toolCalls: { tool: string, output: unknown }[] = [];
-
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n").filter(l => l.trim());
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
 
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            if (data.type === "thought") {
-              accumulatedThought = data.content;
-            } else if (data.type === "content") {
-              accumulatedContent += data.content;
-            } else if (data.type === "tool") {
-              toolCalls.push({ tool: data.name, output: data.args });
-            }
-
-            // Update the last message in state
-            setMessages(prev => {
-              const newMessages = [...prev];
-              const lastMsg = newMessages[newMessages.length - 1];
-              lastMsg.content = accumulatedContent;
-              lastMsg.thought = accumulatedThought;
-              lastMsg.toolCalls = toolCalls;
-              return newMessages;
-            });
-          } catch (e) {
-            console.error("Error parsing stream chunk:", e);
-          }
+        for (const eventChunk of events) {
+          const event = parseSseEvent(eventChunk);
+          if (!event) continue;
+          applyStreamEvent(event, setMessages);
         }
       }
-    } catch (e) {
-      setMessages(prev => {
-        const newMessages = [...prev];
-        if (newMessages.length > 0) {
-          newMessages[newMessages.length - 1].content = "There was an error reaching the agent.";
-        }
-        return newMessages;
-      });
+    } catch (error) {
+      updateLatestAssistantMessage(setMessages, message => ({
+        ...message,
+        status: undefined,
+        content: error instanceof Error ? error.message : "There was an error reaching the agent.",
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -91,6 +69,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
   const clearChat = () => {
     setMessages([]);
+    void clearChatSession(user?.id).catch(console.error);
   };
 
   return (
@@ -103,7 +82,107 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 export const useChat = () => {
   const context = useContext(ChatContext);
   if (context === undefined) {
-    throw new Error('useChat must be used within a ChatProvider');
+    throw new Error("useChat must be used within a ChatProvider");
   }
   return context;
 };
+
+function parseSseEvent(rawEvent: string): Record<string, unknown> | null {
+  const dataLines = rawEvent
+    .split(/\r?\n/)
+    .filter(line => line.startsWith("data:"))
+    .map(line => line.slice(5).trim());
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(dataLines.join(""));
+  } catch (error) {
+    console.error("Error parsing stream event:", error);
+    return null;
+  }
+}
+
+function applyStreamEvent(
+  event: Record<string, unknown>,
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+) {
+  switch (event.type) {
+    case "status":
+    case "warning":
+      updateLatestAssistantMessage(setMessages, message => ({
+        ...message,
+        status: typeof event.content === "string" ? event.content : message.status,
+      }));
+      return;
+    case "message":
+      updateLatestAssistantMessage(setMessages, message => ({
+        ...message,
+        content: `${message.content}${typeof event.content === "string" ? event.content : ""}`,
+      }));
+      return;
+    case "tool_call":
+      updateLatestAssistantMessage(setMessages, message => ({
+        ...message,
+        toolCalls: [
+          ...(message.toolCalls ?? []),
+          {
+            callId: String(event.call_id ?? `${Date.now()}`),
+            name: String(event.name ?? "tool"),
+            status: "running",
+            summary: "Running tool...",
+            arguments: isRecord(event.arguments) ? event.arguments : undefined,
+          },
+        ],
+      }));
+      return;
+    case "tool_result":
+      updateLatestAssistantMessage(setMessages, message => ({
+        ...message,
+        toolCalls: (message.toolCalls ?? []).map(trace =>
+          trace.callId === String(event.call_id)
+            ? {
+                ...trace,
+                status: event.ok ? "success" : "error",
+                summary: String(event.summary ?? trace.summary),
+                result: event.result,
+              }
+            : trace,
+        ),
+      }));
+      return;
+    case "done":
+      updateLatestAssistantMessage(setMessages, message => ({
+        ...message,
+        status: undefined,
+      }));
+      return;
+    default:
+      return;
+  }
+}
+
+function updateLatestAssistantMessage(
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+  updater: (message: ChatMessage) => ChatMessage,
+) {
+  setMessages(prev => {
+    const next = [...prev];
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      if (next[index].role === "assistant") {
+        next[index] = updater({
+          ...next[index],
+          toolCalls: next[index].toolCalls ? [...next[index].toolCalls] : [],
+        });
+        break;
+      }
+    }
+    return next;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

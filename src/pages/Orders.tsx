@@ -1,20 +1,13 @@
 import { useState, useEffect } from "react";
-import { ShoppingCart, Package, Clock, CheckCircle2, ArrowRight } from "lucide-react";
+import { ShoppingCart, Clock, CheckCircle2, ArrowRight } from "lucide-react";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { fetchOrders, updateOrderStatus } from "@/lib/api";
+import type { Order } from "@/lib/types";
 
-type Order = {
-  id: number;
-  product_id: number;
-  product_name: string;
-  quantity: number;
-  total_cost: number;
-  status: string;
-  order_date: string;
-}
 
 export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -24,7 +17,7 @@ export default function Orders() {
     try {
       const data = await fetchOrders();
       setOrders(data);
-    } catch (e) {
+    } catch {
       toast.error("Failed to load orders");
     } finally {
       setIsLoading(false);
@@ -32,25 +25,24 @@ export default function Orders() {
   };
 
   useEffect(() => {
-    loadOrders();
+    void loadOrders();
   }, []);
 
   const handleMarkArrived = async (id: number) => {
     try {
       await updateOrderStatus(id, "Arrived");
       toast.success("Order marked as arrived. Inventory updated!");
-      loadOrders();
-    } catch (e) {
+      await loadOrders();
+    } catch {
       toast.error("Failed to update order status");
     }
   };
 
-  const pendingCount = orders.filter(o => o.status === "Pending").length;
-  const totalSpend = orders.reduce((sum, o) => sum + o.total_cost, 0);
+  const pendingCount = orders.filter(order => order.status === "Pending").length;
+  const totalSpend = orders.reduce((sum, order) => sum + order.total_cost, 0);
 
   return (
     <div className="space-y-6 animate-slide-in">
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card className="glass-card">
           <CardContent className="p-5 flex items-center gap-4">
@@ -76,7 +68,6 @@ export default function Orders() {
         </Card>
       </div>
 
-      {/* Orders Table */}
       <Card className="glass-card overflow-hidden">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -93,17 +84,18 @@ export default function Orders() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((order) => (
+                {orders.map(order => (
                   <tr key={order.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{order.id}</td>
-                    <td className="px-4 py-3 font-medium text-foreground">{order.product_name}</td>
+                    <td className="px-4 py-3 font-medium text-foreground">{order.name}</td>
                     <td className="px-4 py-3 text-right font-mono">{order.quantity}</td>
                     <td className="px-4 py-3 text-right font-mono">${order.total_cost.toFixed(2)}</td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {new Date(order.order_date).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <Badge variant={order.status === "Pending" ? "secondary" : "outline"}
+                      <Badge
+                        variant={order.status === "Pending" ? "secondary" : "outline"}
                         className={order.status === "Pending" ? "bg-warning/15 text-warning border-warning/20" : "bg-success/15 text-success border-success/20"}
                       >
                         {order.status.toUpperCase()}

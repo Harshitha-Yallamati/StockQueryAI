@@ -1,61 +1,119 @@
-# StockQuery AI 📦🤖
+# StockQuery AI
 
-<div align="center">
-  <img src="public/logo.svg" alt="StockQuery AI Logo" width="120" />
-</div>
+StockQuery AI is a full-stack inventory assistant built with React, FastAPI, SQLite, and an LLM tool-calling backend. The project now uses a normalized product schema, a session-aware chat service, MCP-style tool registration, and a safer streaming contract between the UI and the agent.
 
-<p align="center">
-  <strong>Inventory Intelligence and AI-powered Querying</strong>
-</p>
+## Architecture
 
-## Overview
-StockQuery AI is a modern, premium web application built to streamline inventory management using a beautifully designed visual interface and data-driven intelligence. Built with React and structured with highly customizable UI components, it enables businesses to monitor dashboard metrics, chat iteratively regarding stock questions, establish smart threshold alerts, and easily manage product catalogs.
+### Frontend
+- `src/pages/*`: dashboard, products, alerts, orders, auth, and chat views
+- `src/contexts/AuthContext.tsx`: authenticated user state
+- `src/contexts/ChatContext.tsx`: SSE chat client, per-user chat requests, tool-trace UI state
+- `src/lib/api.ts`: typed frontend API client
+- `src/lib/types.ts`: shared frontend data contracts
 
-## 🌟 Features
-- **Secure Authentication**: Integrated with Firebase Authentication, supporting both Email/Password registrations and centralized Google OAuth SSO.
-- **Dynamic Dashboard**: Responsive grid layouts featuring interactive bar and pie charts representing live inventory value distributions (powered by Recharts).
-- **Intelligent Sidebar**: Retractable side navigation displaying context-aware user profile cards and intuitive routing.
-- **Agentic AI Chat Interface** *(UI Layer)*: A chat interface layout primed and ready for backend LLM tool integration to answer your inventory queries naturally.
-- **Premium Design System**: Complete adoption of Tailwind CSS and "Glassmorphism" design philosophies including micro-interactions, dark/light mode optimization, animated sliding frames, and custom typography frameworks utilizing Shadcn UI & Radix.
+### Backend
+- `ai_agent_backend/main.py`: FastAPI app and HTTP routes
+- `ai_agent_backend/agent.py`: agent orchestration, tool loop, safe fallback logic, SSE events
+- `ai_agent_backend/mcp.py`: MCP-style tool descriptors and registry
+- `ai_agent_backend/inventory_tools.py`: inventory database tools exposed to the LLM
+- `ai_agent_backend/knowledge_tools.py`: knowledge-base tools and ingestion helpers
+- `ai_agent_backend/database.py`: schema migration, CRUD, order handling, and reporting
+- `ai_agent_backend/session_store.py`: per-session conversation history
+- `ai_agent_backend/api_schemas.py`: FastAPI request and response models
+- `ai_agent_backend/core_config.py`: environment-driven configuration
+- `ai_agent_backend/streaming.py`: SSE formatting helpers
 
-## 🛠️ Tech Stack
-- **Frontend Framework**: React 18 / Vite
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS + `lucide-react` (iconography)
-- **Component Library**: shadcn/ui + Radix Primitives
-- **Routing**: `react-router-dom`
-- **Authentication**: Firebase Auth (v12)
-- **Data Visualization**: Recharts
+## Normalized Schema
 
-## 🚀 Getting Started
+Products now use one consistent schema across backend and frontend:
 
-### Prerequisites
-Make sure you have [Node.js](https://nodejs.org/) installed on your machine. 
-
-### Installation
-1. Setup the workspace and install the dependencies:
-```bash
-npm install
+```text
+id
+name
+quantity
+price
+category
+brand
+supplier
+warehouse_location
+description
+last_updated
 ```
 
-2. Fire up the local development server:
+Orders now return:
+
+```text
+id
+product_id
+name
+quantity
+total_cost
+status
+order_date
+```
+
+The backend still accepts legacy aliases like `product_name` and `stock_quantity` on input to ease migration, but all responses use the normalized schema.
+
+## Chat and Tool Flow
+
+1. The frontend sends a chat request to `POST /api/chat/stream` with `X-User-ID`.
+2. The backend resolves a per-user session and loads recent chat history.
+3. The agent either:
+   - lets the LLM choose tools, or
+   - uses a high-confidence deterministic route for obvious inventory intents.
+4. Registered Python tools execute against SQLite or the knowledge base.
+5. Tool results are appended back into the conversation.
+6. The final assistant answer is generated from verified tool output, or a safe fallback is returned if verification is not possible.
+7. The frontend renders streaming text plus visible tool traces.
+
+## Supported Inventory Queries
+
+- Show all products
+- Show out-of-stock products
+- Filter products by category
+- Get the cheapest product
+- Get low-stock products
+- Get stock quantity for a specific product
+- Get full product details
+- Get total inventory value
+- Search the knowledge base
+
+## Local Development
+
+### Frontend
+
 ```bash
+npm install
 npm run dev
 ```
 
-3. Open your browser and navigate to the address shown in the terminal (usually `http://localhost:8080/` or `http://localhost:8081/`).
+### Backend
 
-### Building for Production
-To create an optimized production build of the client application:
 ```bash
-npm run build
+cd ai_agent_backend
+python -m uvicorn main:app --reload --port 8000
 ```
 
-## 🔐 Firebase Configuration
-Authentication depends on a connected Firebase Project. To customize it for your own environment:
-1. Navigate to `src/lib/firebase.ts`.
-2. Replace the `firebaseConfig` object with your project parameters provided by the Firebase Console.
-3. Ensure you have actively enabled both **Email/Password** and **Google** sign-in providers in the Firebase Authentication settings tab.
+### Optional environment variables
 
----
-*Developed with precision for modern inventory intelligence.*
+```bash
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=ollama
+STOCKQUERY_LLM_MODEL=qwen2.5:1.5b
+STOCKQUERY_LOW_STOCK_THRESHOLD=10
+STOCKQUERY_SESSION_HISTORY_LIMIT=12
+STOCKQUERY_CORS_ORIGINS=http://localhost:5173,http://localhost:8080
+```
+
+## Data Utilities
+
+- `python ai_agent_backend/seed.py`: seed synthetic inventory data
+- `python ai_agent_backend/seed_kaggle.py`: seed from the Kaggle-based CSV source
+
+## Verification Notes
+
+- Python backend modules compile successfully with `python -m compileall ai_agent_backend`
+- FastAPI smoke checks pass for `/api/products`, `/api/tools`, and the new streaming event format
+- TypeScript type-check passes with `node_modules\.bin\tsc.cmd -p tsconfig.app.json --noEmit`
+- ESLint passes with warnings only
+- `npm run build` may fail in some Windows sandboxed environments if the local `@swc/core` native binary cannot be loaded; this is an environment/runtime issue rather than an application type or lint failure

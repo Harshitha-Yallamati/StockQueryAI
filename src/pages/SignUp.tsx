@@ -26,11 +26,11 @@ export default function SignUp() {
         description: "Welcome to StockQuery AI!",
       });
       navigate("/");
-    } catch (err: any) {
+    } catch (err) {
       toast({
         variant: "destructive",
         title: "Registration failed",
-        description: err.message || "Failed to create account",
+        description: getErrorMessage(err, "Failed to create account"),
       });
     } finally {
       setLoading(false);
@@ -45,11 +45,11 @@ export default function SignUp() {
         description: "Registration successful!",
       });
       navigate("/");
-    } catch (err: any) {
+    } catch (err) {
       toast({
         variant: "destructive",
         title: "Google sign up failed",
-        description: err.message || "Please try again later.",
+        description: getErrorMessage(err, "Please try again later."),
       });
     }
   };
@@ -150,4 +150,8 @@ export default function SignUp() {
       </Card>
     </div>
   );
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }

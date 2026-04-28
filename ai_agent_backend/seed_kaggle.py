@@ -1,73 +1,85 @@
-import sqlite3
-import requests
-import pandas as pd
+from __future__ import annotations
+
 import io
-import random
 import os
+import random
+import sqlite3
+
+import pandas as pd
+import requests
+
+import database
+
 
 CSV_URL = "https://raw.githubusercontent.com/zulfaan/intro-to-data-engineer-project_pacmann/main/source-marketing_data/ElectronicsProductsPricingData.csv"
-DB_FILENAME = "agent_inventory.db"
-DB_PATH = os.path.join(os.path.dirname(__file__), DB_FILENAME)
+DB_PATH = os.path.join(os.path.dirname(__file__), "agent_inventory.db")
 
-def download_and_seed():
+
+def download_and_seed() -> None:
     print(f"Downloading dataset from {CSV_URL}...")
-    try:
-        response = requests.get(CSV_URL)
-        response.raise_for_status()
-        
-        # Load into pandas
-        df = pd.read_csv(io.StringIO(response.text))
-        print(f"Loaded {len(df)} rows from CSV.")
-        
-        # Cleanup and Mapping
-        # Keep only relevant columns if they exist
-        required_cols = ['name', 'prices.amountMax', 'categories', 'prices.availability']
-        for col in required_cols:
-            if col not in df.columns:
-                print(f"Warning: Column {col} missing from CSV. Using fallback.")
-                df[col] = "N/A" if col != 'prices.amountMax' else 0.0
+    response = requests.get(CSV_URL, timeout=30)
+    response.raise_for_status()
 
-        # Create localized dataframe for DB
-        # 1. Primary Category
-        df['clean_category'] = df['categories'].apply(lambda x: str(x).split(',')[0].strip() if pd.notnull(x) else "Electronics")
-        
-        # 2. Quantity Logic
-        def derive_quantity(availability):
-            avail = str(availability).lower()
-            if "yes" in avail or "in stock" in avail or "true" in avail:
-                return random.randint(15, 300)
-            return 0
-        
-        df['derived_quantity'] = df['prices.availability'].apply(derive_quantity)
-        
-        # 3. Final Selection
-        # Limit to 150 unique high-quality products
-        seed_data = df.drop_duplicates(subset=['name']).head(150)
-        
-        # Open DB connection
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        
-        # Wipe existing data
-        print("Clearing existing products table...")
-        c.execute("DELETE FROM products")
-        
-        # Insert new data
-        print("Seeding real Kaggle data...")
-        count = 0
+    df = pd.read_csv(io.StringIO(response.text))
+    print(f"Loaded {len(df)} rows from CSV.")
+
+    required_columns = ["name", "prices.amountMax", "categories", "prices.availability"]
+    for column in required_columns:
+        if column not in df.columns:
+            print(f"Warning: Column {column} missing from CSV. Using fallback values.")
+            df[column] = "N/A" if column != "prices.amountMax" else 0.0
+
+    df["clean_category"] = df["categories"].apply(
+        lambda value: str(value).split(",")[0].strip() if pd.notnull(value) else "Electronics"
+    )
+
+    def derive_quantity(availability: str) -> int:
+        normalized = str(availability).lower()
+        if "yes" in normalized or "in stock" in normalized or "true" in normalized:
+            return random.randint(15, 300)
+        return 0
+
+    df["derived_quantity"] = df["prices.availability"].apply(derive_quantity)
+    seed_data = df.drop_duplicates(subset=["name"]).head(150)
+
+    database.init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("DELETE FROM orders")
+        conn.execute("DELETE FROM products")
+
+        rows = []
         for _, row in seed_data.iterrows():
-            c.execute(
-                "INSERT INTO products (name, quantity, price, category) VALUES (?, ?, ?, ?)",
-                (row['name'], int(row['derived_quantity']), float(row['prices.amountMax']), row['clean_category'])
+            name = str(row["name"]).strip()
+            brand = name.split(" ")[0] if name else "Unknown"
+            rows.append(
+                (
+                    name,
+                    int(row["derived_quantity"]),
+                    float(row["prices.amountMax"] or 0.0),
+                    str(row["clean_category"]).strip() or "Electronics",
+                    brand,
+                    "Kaggle Import",
+                    "Main Warehouse",
+                    "Imported from Kaggle pricing dataset.",
+                )
             )
-            count += 1
-            
+
+        conn.executemany(
+            """
+            INSERT INTO products (
+                name, quantity, price, category, brand, supplier, warehouse_location, description
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
         conn.commit()
+    finally:
         conn.close()
-        print(f"Successfully seeded {count} real products into the inventory!")
-        
-    except Exception as e:
-        print(f"Failed to seed Kaggle data: {e}")
+
+    print(f"Successfully seeded {len(rows)} real products into the inventory.")
+
 
 if __name__ == "__main__":
     download_and_seed()

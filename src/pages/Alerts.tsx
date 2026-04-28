@@ -1,72 +1,66 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, Package, Truck, Clock, DollarSign } from "lucide-react";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { fetchAlerts, placeOrder } from "@/lib/api";
+import type { Product } from "@/lib/types";
 
-type AlertItem = {
-  product_id: number;
-  product_name: string;
-  category: string;
-  brand: string;
-  price: number;
-  stock_quantity: number;
-  warehouse_location: string;
-  supplier: string;
-}
 
 export default function Alerts() {
-  const [lowStock, setLowStock] = useState<AlertItem[]>([]);
+  const [lowStock, setLowStock] = useState<Product[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [showAllCategories, setShowAllCategories] = useState(false);
 
   const loadAlerts = () => {
-    fetchAlerts().then(setLowStock).catch(console.error);
+    fetchAlerts().then(setLowStock).catch(() => {
+      toast.error("Failed to load alerts");
+    });
   };
 
   useEffect(() => {
     loadAlerts();
   }, []);
 
-  const categories = Array.from(new Set(lowStock.map(p => p.category))).sort();
+  const categories = Array.from(new Set(lowStock.map(product => product.category))).sort();
   const displayedCategories = showAllCategories ? categories : categories.slice(0, 5);
 
-  const filtered = lowStock.filter(p => {
-    if (categoryFilter && p.category !== categoryFilter) return false;
+  const filtered = lowStock.filter(product => {
+    if (categoryFilter && product.category !== categoryFilter) return false;
     return true;
   });
 
-  const totalDeficitCost = filtered.reduce((s, p) => {
-    // Assuming a generic reorder level of 10 for all alerts
-    const deficit = Math.max(0, 10 - p.stock_quantity);
-    return s + deficit * p.price;
+  const totalDeficitCost = filtered.reduce((sum, product) => {
+    const deficit = Math.max(0, 10 - product.quantity);
+    return sum + deficit * product.price;
   }, 0);
 
-  const handleRestock = async (product: AlertItem) => {
+  const handleRestock = async (product: Product) => {
     try {
-      const reorder_level = 10;
-      const deficit = Math.max(0, reorder_level - product.stock_quantity);
-      const total_cost = deficit * product.price;
+      const reorderLevel = 10;
+      const deficit = Math.max(0, reorderLevel - product.quantity);
+
+      if (deficit === 0) {
+        toast.info(`${product.name} is already at the reorder level`);
+        return;
+      }
 
       await placeOrder({
-        product_id: product.product_id,
-        product_name: product.product_name,
+        product_id: product.id,
         quantity: deficit,
-        total_cost: total_cost
       });
 
-      toast.success(`Purchase order generated for ${product.product_name}`);
-      loadAlerts(); // Refresh list to reflect that we've initiated restock
-    } catch (e) {
+      toast.success(`Purchase order generated for ${product.name}`);
+      loadAlerts();
+    } catch {
       toast.error("Failed to place restock order");
     }
   };
 
   return (
     <div className="space-y-6 animate-slide-in">
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="glass-card border-warning/30">
           <CardContent className="p-5 flex items-center gap-4">
@@ -85,7 +79,7 @@ export default function Alerts() {
               <Package className="w-5 h-5 text-destructive" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">{filtered.filter(p => p.stock_quantity === 0).length}</p>
+              <p className="text-2xl font-bold text-foreground">{filtered.filter(product => product.quantity === 0).length}</p>
               <p className="text-xs text-muted-foreground">Out of Stock</p>
             </div>
           </CardContent>
@@ -103,17 +97,16 @@ export default function Alerts() {
         </Card>
       </div>
 
-      {/* Filters */}
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-2 items-center bg-card/50 p-3 rounded-xl border border-border/50">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-2">Filter By:</span>
-          {displayedCategories.map(c => (
+          {displayedCategories.map(category => (
             <button
-              key={c}
-              onClick={() => setCategoryFilter(c === categoryFilter ? null : c)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${categoryFilter === c ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "bg-card text-muted-foreground border border-border hover:bg-muted"}`}
+              key={category}
+              onClick={() => setCategoryFilter(category === categoryFilter ? null : category)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${categoryFilter === category ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "bg-card text-muted-foreground border border-border hover:bg-muted"}`}
             >
-              {c}
+              {category}
             </button>
           ))}
           {categories.length > 5 && (
@@ -127,31 +120,30 @@ export default function Alerts() {
         </div>
       )}
 
-      {/* Alert Cards */}
       <div className="space-y-3">
-        {filtered.sort((a, b) => a.stock_quantity - b.stock_quantity).map(p => {
-          const reorder_level = 10;
-          const deficit = Math.max(0, reorder_level - p.stock_quantity);
-          const restockCost = deficit * p.price;
-          const isOut = p.stock_quantity === 0;
+        {filtered.sort((left, right) => left.quantity - right.quantity).map(product => {
+          const reorderLevel = 10;
+          const deficit = Math.max(0, reorderLevel - product.quantity);
+          const restockCost = deficit * product.price;
+          const isOut = product.quantity === 0;
 
           return (
-            <Card key={p.product_id} className={`glass-card ${isOut ? "border-destructive/30" : "border-warning/30"}`}>
+            <Card key={product.id} className={`glass-card ${isOut ? "border-destructive/30" : "border-warning/30"}`}>
               <CardContent className="p-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-start gap-3">
                     <div className={`w-2 h-2 rounded-full mt-2 ${isOut ? "bg-destructive animate-pulse-soft" : "bg-warning"}`} />
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-foreground">{p.product_name}</h3>
+                        <h3 className="font-semibold text-foreground">{product.name}</h3>
                         <Badge variant={isOut ? "destructive" : "secondary"} className={`text-xs ${!isOut ? "bg-warning/15 text-warning border-warning/20" : ""}`}>
                           {isOut ? "OUT OF STOCK" : "LOW STOCK"}
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                        <span className="font-mono">ID: {p.product_id}</span>
-                        <span>{p.category}</span>
-                        <span>${p.price.toFixed(2)} ea</span>
+                        <span className="font-mono">ID: {product.id}</span>
+                        <span>{product.category}</span>
+                        <span>${product.price.toFixed(2)} ea</span>
                       </div>
                     </div>
                   </div>
@@ -159,11 +151,11 @@ export default function Alerts() {
                   <div className="flex items-center gap-6 text-sm ml-5 sm:ml-0">
                     <div className="flex gap-6">
                       <div className="text-center">
-                        <p className={`font-bold font-mono ${isOut ? "text-destructive" : "text-warning"}`}>{p.stock_quantity}</p>
+                        <p className={`font-bold font-mono ${isOut ? "text-destructive" : "text-warning"}`}>{product.quantity}</p>
                         <p className="text-xs text-muted-foreground">Current</p>
                       </div>
                       <div className="text-center">
-                        <p className="font-bold font-mono text-foreground">{reorder_level}</p>
+                        <p className="font-bold font-mono text-foreground">{reorderLevel}</p>
                         <p className="text-xs text-muted-foreground">Reorder</p>
                       </div>
                       <div className="text-center">
@@ -171,14 +163,14 @@ export default function Alerts() {
                         <p className="text-xs text-muted-foreground">Deficit</p>
                       </div>
                     </div>
-                    <Button onClick={() => handleRestock(p)} size="sm">
+                    <Button onClick={() => handleRestock(product)} size="sm">
                       Restock
                     </Button>
                   </div>
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-border/50 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground ml-5">
-                  <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {p.supplier}</span>
+                  <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {product.supplier}</span>
                   <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Standard lead time</span>
                   <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> ${restockCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} restock cost</span>
                 </div>
