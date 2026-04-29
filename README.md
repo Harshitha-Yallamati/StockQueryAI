@@ -1,119 +1,281 @@
-# StockQuery AI
+# StockQuery AI: Inventory Intelligence Agent
 
-StockQuery AI is a full-stack inventory assistant built with React, FastAPI, SQLite, and an LLM tool-calling backend. The project now uses a normalized product schema, a session-aware chat service, MCP-style tool registration, and a safer streaming contract between the UI and the agent.
+StockQuery AI is a full-stack retail inventory assistant that answers questions from verified data instead of guessing. The frontend provides a dashboard, chat assistant, product management, low-stock alerts, and order tracking. The backend uses FastAPI, SQLite, ChromaDB, and an MCP-compatible tool layer so the agent can query structured systems before responding.
+
+## Overview
+
+This project demonstrates an agentic workflow for retail operations:
+
+- A user asks an inventory question in the React app.
+- The FastAPI backend routes the request to verified tools.
+- Tools query SQLite or the knowledge base.
+- The agent responds only from returned results.
+- The UI shows tool traces so the answer is explainable.
+
+For common inventory questions, the backend can deterministically route straight to the right tool without waiting on model reasoning. If the LLM is unavailable, the app still falls back to safe verified responses where possible.
+
+## Key Features
+
+- Verified chat answers backed by SQLite inventory data
+- Visible tool traces in the chat interface
+- Dashboard with live inventory stats and charts
+- Product catalog search plus create, update, and delete flows
+- Low-stock alerts with one-click restock order creation
+- Purchase order tracking with status updates
+- MCP JSON-RPC endpoint for tool discovery and execution
+- Optional ChromaDB knowledge-base retrieval
+- Firebase authentication for protected frontend routes
+
+## Tech Stack
+
+- Frontend: React, Vite, TypeScript, Tailwind CSS, shadcn/ui, Recharts
+- Backend: FastAPI, Python, SQLite, ChromaDB
+- Agent layer: OpenAI-compatible client, MCP tool registry, deterministic routing
+- Authentication: Firebase
+- Local model runtime: Ollama with `qwen2.5:1.5b` by default
 
 ## Architecture
 
-### Frontend
-- `src/pages/*`: dashboard, products, alerts, orders, auth, and chat views
-- `src/contexts/AuthContext.tsx`: authenticated user state
-- `src/contexts/ChatContext.tsx`: SSE chat client, per-user chat requests, tool-trace UI state
-- `src/lib/api.ts`: typed frontend API client
-- `src/lib/types.ts`: shared frontend data contracts
+```mermaid
+graph TD
+    User([User]) --> |"Ask inventory question"| UI[React Frontend]
+    UI --> |SSE / REST| API[FastAPI Backend]
 
-### Backend
-- `ai_agent_backend/main.py`: FastAPI app and HTTP routes
-- `ai_agent_backend/agent.py`: agent orchestration, tool loop, safe fallback logic, SSE events
-- `ai_agent_backend/mcp.py`: MCP-style tool descriptors and registry
-- `ai_agent_backend/inventory_tools.py`: inventory database tools exposed to the LLM
-- `ai_agent_backend/knowledge_tools.py`: knowledge-base tools and ingestion helpers
-- `ai_agent_backend/database.py`: schema migration, CRUD, order handling, and reporting
-- `ai_agent_backend/session_store.py`: per-session conversation history
-- `ai_agent_backend/api_schemas.py`: FastAPI request and response models
-- `ai_agent_backend/core_config.py`: environment-driven configuration
-- `ai_agent_backend/streaming.py`: SSE formatting helpers
+    subgraph Agent Backend
+        API --> Agent[StockQuery Agent]
+        Agent --> Router[Deterministic Router + LLM]
+        Router --> MCP[MCP Tool Registry]
+    end
 
-## Normalized Schema
+    subgraph Data Layer
+        MCP --> SQLite[(SQLite Inventory DB)]
+        MCP --> Chroma[(ChromaDB Knowledge Base)]
+    end
 
-Products now use one consistent schema across backend and frontend:
-
-```text
-id
-name
-quantity
-price
-category
-brand
-supplier
-warehouse_location
-description
-last_updated
+    SQLite -.-> |Verified inventory data| Agent
+    Chroma -.-> |Retrieved context| Agent
+    Agent --> |Verified response + tool trace| UI
 ```
 
-Orders now return:
+## What The App Includes
+
+### Frontend pages
+
+- Dashboard: inventory KPIs, category value chart, and inventory breakdown
+- Chat: verified assistant responses streamed over SSE with tool status cards
+- Products: searchable catalog with add, edit, and delete actions
+- Alerts: low-stock monitor with estimated restock cost and quick reorder actions
+- Orders: purchase order history with pending and arrived states
+
+### Backend capabilities
+
+- Streaming chat endpoint at `/api/chat/stream`
+- Non-streaming chat endpoint at `/api/chat`
+- Inventory stats, product CRUD, alerts, and order APIs
+- MCP endpoint at `/mcp`
+- Knowledge ingestion endpoint at `/api/knowledge/ingest`
+- Session-based chat history with verified result reuse
+
+## Supported Verified Queries
+
+Try prompts like:
+
+- `Show all products`
+- `What is the cheapest product?`
+- `What is our total inventory value?`
+- `Give me an inventory overview`
+- `Show low stock items below 5`
+- `Which items are out of stock?`
+- `Show Logitech products`
+- `What categories do we have?`
+- `Tell me about Test Laptop`
+- `Show pending orders`
+- `Do you have milk?`
+
+The backend currently supports verified intents for:
+
+- product availability
+- product details
+- low-stock and out-of-stock checks
+- category-based listing
+- broad catalog search
+- cheapest-product lookup
+- total inventory value
+- inventory overview
+- order listing and order status filtering
+- knowledge-base search
+
+## Project Structure
 
 ```text
-id
-product_id
-name
-quantity
-total_cost
-status
-order_date
+StockQueryAI/
+|-- src/                    # React frontend
+|-- public/                 # Static assets
+|-- ai_agent_backend/       # FastAPI app, SQLite tools, MCP server
+|-- README.md               # Top-level project guide
+|-- test_api.py             # Simple API smoke test
 ```
 
-The backend still accepts legacy aliases like `product_name` and `stock_quantity` on input to ease migration, but all responses use the normalized schema.
+For backend-specific API details, see [`ai_agent_backend/README.md`](./ai_agent_backend/README.md).
 
-## Chat and Tool Flow
+## Local Development Setup
 
-1. The frontend sends a chat request to `POST /api/chat/stream` with `X-User-ID`.
-2. The backend resolves a per-user session and loads recent chat history.
-3. The agent either:
-   - lets the LLM choose tools, or
-   - uses a high-confidence deterministic route for obvious inventory intents.
-4. Registered Python tools execute against SQLite or the knowledge base.
-5. Tool results are appended back into the conversation.
-6. The final assistant answer is generated from verified tool output, or a safe fallback is returned if verification is not possible.
-7. The frontend renders streaming text plus visible tool traces.
+### 1. Start the local LLM
 
-## Supported Inventory Queries
-
-- Show all products
-- Show out-of-stock products
-- Filter products by category
-- Get the cheapest product
-- Get low-stock products
-- Get stock quantity for a specific product
-- Get full product details
-- Get total inventory value
-- Search the knowledge base
-
-## Local Development
-
-### Frontend
+Agent features are designed around an OpenAI-compatible endpoint. The default configuration expects Ollama:
 
 ```bash
+ollama pull qwen2.5:1.5b
+ollama serve
+```
+
+If you prefer another compatible provider, update `ai_agent_backend/.env` instead.
+
+### 2. Start the backend
+
+Run these commands from the project root:
+
+```powershell
+cd ai_agent_backend
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python seed.py
+uvicorn main:app --reload --port 8000
+```
+
+On macOS or Linux:
+
+```bash
+cd ai_agent_backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python seed.py
+uvicorn main:app --reload --port 8000
+```
+
+Notes:
+
+- Run the backend from `ai_agent_backend` unless you switch the relative paths in `.env` to absolute paths.
+- `python seed.py` resets and seeds the demo SQLite inventory.
+- Swagger UI is available at `http://127.0.0.1:8000/docs`.
+
+### 3. Start the frontend
+
+Open a second terminal in the project root:
+
+```powershell
+Copy-Item .env.example .env.local
 npm install
 npm run dev
 ```
 
+If PowerShell blocks `npm.ps1`, use:
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+```
+
+The frontend runs on Vite's default local port, usually `http://localhost:5173`.
+
+### 4. Configure the frontend API base if needed
+
+The root `.env.example` contains:
+
+```env
+VITE_API_BASE=http://localhost:8000
+```
+
+If you start FastAPI on `8001`, update `.env.local` to:
+
+```env
+VITE_API_BASE=http://localhost:8001
+```
+
+## Environment Notes
+
+### Frontend
+
+- `VITE_API_BASE` controls where the React app sends API requests.
+- Firebase is currently configured directly in `src/lib/firebase.ts`.
+
 ### Backend
+
+Important backend variables from `ai_agent_backend/.env.example`:
+
+- `STOCKQUERY_DB_PATH`: SQLite database path
+- `STOCKQUERY_CHROMA_PATH`: ChromaDB persistence path
+- `OPENAI_BASE_URL`: OpenAI-compatible endpoint
+- `OPENAI_API_KEY`: API key for that endpoint
+- `STOCKQUERY_LLM_MODEL`: default chat model
+- `STOCKQUERY_LLM_TIMEOUT_SECONDS`: timeout before safe fallback
+- `STOCKQUERY_LOW_STOCK_THRESHOLD`: default restock threshold
+- `STOCKQUERY_SESSION_HISTORY_LIMIT`: chat memory depth
+- `STOCKQUERY_CORS_ORIGINS`: allowed frontend origins
+
+## Useful Endpoints
+
+### Chat and agent
+
+- `POST /api/chat`
+- `POST /api/chat/stream`
+- `DELETE /api/chat/session`
+- `GET /api/tools`
+- `POST /mcp`
+
+### Inventory operations
+
+- `GET /api/dashboard/stats`
+- `GET /api/products`
+- `POST /api/products`
+- `PUT /api/products/{product_id}`
+- `DELETE /api/products/{product_id}`
+- `GET /api/alerts`
+- `GET /api/orders`
+- `POST /api/orders`
+- `PUT /api/orders/{order_id}/status`
+
+## Testing
+
+Frontend:
+
+```bash
+npm test
+```
+
+Backend:
 
 ```bash
 cd ai_agent_backend
-python -m uvicorn main:app --reload --port 8000
+pytest test_backend.py
 ```
 
-### Optional environment variables
+Simple API smoke test with the backend running:
 
 ```bash
-OPENAI_BASE_URL=http://localhost:11434/v1
-OPENAI_API_KEY=ollama
-STOCKQUERY_LLM_MODEL=qwen2.5:1.5b
-STOCKQUERY_LOW_STOCK_THRESHOLD=10
-STOCKQUERY_SESSION_HISTORY_LIMIT=12
-STOCKQUERY_CORS_ORIGINS=http://localhost:5173,http://localhost:8080
+python test_api.py
 ```
 
-## Data Utilities
+## Screenshots
 
-- `python ai_agent_backend/seed.py`: seed synthetic inventory data
-- `python ai_agent_backend/seed_kaggle.py`: seed from the Kaggle-based CSV source
+Add these screenshots before submission:
 
-## Verification Notes
+- `docs/screenshots/dashboard.png`
+- `docs/screenshots/chat-tool-trace.png`
+- `docs/screenshots/products.png`
+- `docs/screenshots/orders-or-alerts.png`
 
-- Python backend modules compile successfully with `python -m compileall ai_agent_backend`
-- FastAPI smoke checks pass for `/api/products`, `/api/tools`, and the new streaming event format
-- TypeScript type-check passes with `node_modules\.bin\tsc.cmd -p tsconfig.app.json --noEmit`
-- ESLint passes with warnings only
-- `npm run build` may fail in some Windows sandboxed environments if the local `@swc/core` native binary cannot be loaded; this is an environment/runtime issue rather than an application type or lint failure
+Suggested captures:
+
+- dashboard overview with charts
+- chat response showing at least one verified tool trace
+- products table with CRUD controls visible
+- either the orders page or the alerts page
+
+## Why This Project Matters
+
+StockQuery AI shows a practical agent pattern: the model is not trusted to invent answers, only to decide when and how to use tools. That makes the system more auditable, more reliable for operations use cases, and easier to explain in demos or submissions.

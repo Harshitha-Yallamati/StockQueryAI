@@ -19,7 +19,19 @@ const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-background"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary"></div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Starting StockQuery AI</p>
+            <p className="text-xs text-muted-foreground">Preparing local demo session...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };

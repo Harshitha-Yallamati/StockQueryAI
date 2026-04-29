@@ -1,7 +1,7 @@
 import type { DashboardStats, Order, Product } from "@/lib/types";
 
-const API_ROOT = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-const API_BASE = `${API_ROOT}/api`;
+const configuredApiBase = (import.meta.env.VITE_API_BASE ?? "").trim().replace(/\/$/, "");
+const API_BASE = configuredApiBase ? `${configuredApiBase}/api` : "/api";
 
 async function fetchJson<T>(
   input: RequestInfo | URL,

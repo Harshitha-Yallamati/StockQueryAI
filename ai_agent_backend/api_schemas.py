@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AskRequest(BaseModel):
@@ -25,10 +25,11 @@ class IngestRequest(BaseModel):
 
 
 class ProductBase(BaseModel):
+    # Migration note: only normalized schema keys are accepted at the API boundary.
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    name: str = Field(validation_alias=AliasChoices("name", "product_name"), min_length=1)
-    quantity: int = Field(validation_alias=AliasChoices("quantity", "stock_quantity"), ge=0)
+    name: str = Field(min_length=1)
+    quantity: int = Field(ge=0)
     price: float = Field(ge=0)
     category: str = Field(min_length=1)
     brand: str = "Unknown"
@@ -51,8 +52,8 @@ class ProductCreate(ProductBase):
 class ProductUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    name: str | None = Field(default=None, validation_alias=AliasChoices("name", "product_name"))
-    quantity: int | None = Field(default=None, validation_alias=AliasChoices("quantity", "stock_quantity"), ge=0)
+    name: str | None = Field(default=None)
+    quantity: int | None = Field(default=None, ge=0)
     price: float | None = Field(default=None, ge=0)
     category: str | None = None
     brand: str | None = None

@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python & DB
+.env
+.venv
+__pycache__/
+*.sqlite3
+*.db
+chroma_db/

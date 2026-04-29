@@ -1,3 +1,4 @@
+// Migration note: frontend product types use only the normalized schema keys.
 export interface Product {
   id: number;
   name: string;

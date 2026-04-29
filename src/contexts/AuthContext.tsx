@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth } from '@/lib/firebase';
 import { 
+  User as FirebaseUser,
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signInWithPopup, 
@@ -27,27 +28,54 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+const DEMO_AUTH_TIMEOUT_MS = 2000;
+
+function mapFirebaseUser(firebaseUser: FirebaseUser): User {
+  return {
+    id: firebaseUser.uid,
+    email: firebaseUser.email || '',
+    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+    picture: firebaseUser.photoURL || undefined,
+  };
+}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser({
-          id: firebaseUser.uid,
-          email: firebaseUser.email || '',
-          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-          picture: firebaseUser.photoURL || undefined
-        });
-      } else {
-        setUser(null);
-      }
+    let resolved = false;
+    const fallbackTimer = window.setTimeout(() => {
+      if (resolved) return;
+      setUser(null);
       setLoading(false);
-    });
+    }, DEMO_AUTH_TIMEOUT_MS);
 
-    return () => unsubscribe();
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (firebaseUser) => {
+        resolved = true;
+        window.clearTimeout(fallbackTimer);
+        if (firebaseUser) {
+          setUser(mapFirebaseUser(firebaseUser));
+        } else {
+          setUser(null);
+        }
+        setLoading(false);
+      },
+      () => {
+        resolved = true;
+        window.clearTimeout(fallbackTimer);
+        setUser(null);
+        setLoading(false);
+      },
+    );
+
+    return () => {
+      resolved = true;
+      window.clearTimeout(fallbackTimer);
+      unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -73,7 +101,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } finally {
+      setUser(null);
+    }
   };
 
   return (

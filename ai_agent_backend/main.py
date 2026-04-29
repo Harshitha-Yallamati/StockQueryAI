@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -7,7 +8,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 import database as db
 from agent import stock_query_agent, stream_agent, tool_registry
@@ -26,6 +27,7 @@ from api_schemas import (
 )
 from core_config import get_settings
 from knowledge_tools import add_knowledge
+from mcp import MCPServer, MCP_SESSION_HEADER
 
 
 logging.basicConfig(
@@ -34,6 +36,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 settings = get_settings()
+mcp_server = MCPServer(
+    tool_registry,
+    server_name="stockquery-ai",
+    server_title=settings.app_name,
+    server_version=settings.app_version,
+)
 
 
 @asynccontextmanager
@@ -112,6 +120,60 @@ async def clear_chat_session(request: Request):
 @app.get("/api/tools", response_model=list[ToolDescriptor])
 def get_tool_descriptors():
     return tool_registry.descriptors()
+
+
+@app.post("/mcp")
+async def handle_mcp(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = None
+
+    response = mcp_server.handle_http_message(payload, _normalized_headers(request))
+    if response.payload is None:
+        return Response(status_code=response.status_code, headers=response.headers)
+    return JSONResponse(
+        status_code=response.status_code,
+        content=response.payload,
+        headers=response.headers,
+    )
+
+
+@app.get("/mcp")
+async def stream_mcp(request: Request):
+    session_id = request.headers.get(MCP_SESSION_HEADER)
+    if not session_id:
+        raise HTTPException(status_code=400, detail=f"Missing {MCP_SESSION_HEADER} header.")
+    if not mcp_server.has_session(session_id):
+        raise HTTPException(status_code=404, detail="MCP session not found.")
+
+    async def event_stream():
+        yield ": connected\n\n"
+        while not await request.is_disconnected():
+            await asyncio.sleep(15)
+            yield ": keep-alive\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.delete("/mcp", status_code=204)
+async def delete_mcp_session(request: Request):
+    session_id = request.headers.get(MCP_SESSION_HEADER)
+    if not session_id:
+        raise HTTPException(status_code=400, detail=f"Missing {MCP_SESSION_HEADER} header.")
+
+    if not mcp_server.terminate_session(session_id):
+        raise HTTPException(status_code=404, detail="MCP session not found.")
+
+    return Response(status_code=204)
 
 
 @app.post("/api/knowledge/ingest")
@@ -262,3 +324,7 @@ def _to_http_exception(exc: db.InventoryDataError) -> HTTPException:
         status_code=status_code,
         detail={"code": exc.code, "message": str(exc)},
     )
+
+
+def _normalized_headers(request: Request) -> dict[str, str]:
+    return {key.lower(): value for key, value in request.headers.items()}

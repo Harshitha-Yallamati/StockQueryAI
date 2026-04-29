@@ -7,9 +7,9 @@ from core_config import get_settings
 from mcp import MCPTool
 
 
-def query_inventory_db(product_name: str) -> dict[str, Any]:
+def query_inventory_db(name: str) -> dict[str, Any]:
     try:
-        product = db.find_product_by_name(product_name)
+        product = db.find_product_by_name(name)
         summary = f"{product['name']} has {product['quantity']} units in stock."
         return _success(
             data={"product": product},
@@ -20,9 +20,9 @@ def query_inventory_db(product_name: str) -> dict[str, Any]:
         return _error(exc.code, str(exc))
 
 
-def get_product_details(product_name: str) -> dict[str, Any]:
+def get_product_details(name: str) -> dict[str, Any]:
     try:
-        product = db.find_product_by_name(product_name)
+        product = db.find_product_by_name(name)
         summary = f"Retrieved full details for {product['name']}."
         return _success(
             data={"product": product},
@@ -73,6 +73,19 @@ def get_total_inventory_value() -> dict[str, Any]:
     return _success(data=payload, summary=message, rendered_response=message)
 
 
+def get_inventory_overview() -> dict[str, Any]:
+    payload = db.get_inventory_overview()
+    message = (
+        f"Inventory overview: {payload['total_products']} products, "
+        f"{payload['total_units']} units, and ${payload['total_inventory_value']:,.2f} in inventory value."
+    )
+    return _success(
+        data=payload,
+        summary=message,
+        rendered_response=_format_inventory_overview(payload),
+    )
+
+
 def list_products() -> dict[str, Any]:
     try:
         products = db.get_all_products()
@@ -81,6 +94,29 @@ def list_products() -> dict[str, Any]:
             data={"products": products, "count": len(products)},
             summary=summary,
             rendered_response=_format_product_list(products, heading="Inventory products"),
+        )
+    except db.InventoryDataError as exc:
+        return _error(exc.code, str(exc))
+
+
+def search_inventory_catalog(query: str, limit: int = 10) -> dict[str, Any]:
+    try:
+        products = db.search_products(query, limit=limit)
+        if not products:
+            message = f"No inventory matches were found for '{query}'."
+            return _success(
+                data={"products": [], "count": 0, "query": query, "limit": limit},
+                summary=message,
+                rendered_response=message,
+            )
+        summary = f"Found {len(products)} inventory match(es) for '{query}'."
+        return _success(
+            data={"products": products, "count": len(products), "query": query, "limit": limit},
+            summary=summary,
+            rendered_response=_format_product_list(
+                products,
+                heading=f"Inventory matches for '{query}'",
+            ),
         )
     except db.InventoryDataError as exc:
         return _error(exc.code, str(exc))
@@ -129,6 +165,26 @@ def list_products_by_category(category: str) -> dict[str, Any]:
         return _error(exc.code, str(exc))
 
 
+def list_product_categories() -> dict[str, Any]:
+    try:
+        categories = db.get_product_category_counts()
+        if not categories:
+            message = "No product categories are available because the inventory database is empty."
+            return _success(
+                data={"categories": [], "count": 0},
+                summary=message,
+                rendered_response=message,
+            )
+        summary = f"Found {len(categories)} inventory categor(ies)."
+        return _success(
+            data={"categories": categories, "count": len(categories)},
+            summary=summary,
+            rendered_response=_format_category_list(categories),
+        )
+    except db.InventoryDataError as exc:
+        return _error(exc.code, str(exc))
+
+
 def get_cheapest_product() -> dict[str, Any]:
     try:
         product = db.get_cheapest_product()
@@ -142,7 +198,52 @@ def get_cheapest_product() -> dict[str, Any]:
         return _error(exc.code, str(exc))
 
 
+def list_orders() -> dict[str, Any]:
+    try:
+        orders = db.get_all_orders()
+        if not orders:
+            message = "There are no orders in the system."
+            return _success(
+                data={"orders": [], "count": 0},
+                summary=message,
+                rendered_response=message,
+            )
+        summary = f"Found {len(orders)} order(s)."
+
+        return _success(
+            data={"orders": orders, "count": len(orders)},
+            summary=summary,
+            rendered_response=_format_order_list(orders, heading="Recent orders"),
+        )
+    except db.InventoryDataError as exc:
+        return _error(exc.code, str(exc))
+
+
+def list_orders_by_status(status: str) -> dict[str, Any]:
+    try:
+        orders = db.get_orders_by_status(status)
+        normalized_status = orders[0]["status"] if orders else (
+            "Cancelled" if status.strip().lower() in {"cancelled", "canceled"} else status.strip().title()
+        )
+        if not orders:
+            message = f"No orders currently have status '{normalized_status}'."
+            return _success(
+                data={"orders": [], "count": 0, "status": normalized_status},
+                summary=message,
+                rendered_response=message,
+            )
+        summary = f"Found {len(orders)} order(s) with status '{normalized_status}'."
+        return _success(
+            data={"orders": orders, "count": len(orders), "status": normalized_status},
+            summary=summary,
+            rendered_response=_format_order_list(orders, heading=f"{normalized_status} orders"),
+        )
+    except db.InventoryDataError as exc:
+        return _error(exc.code, str(exc))
+
+
 def build_inventory_tools() -> list[MCPTool]:
+    # Migration note: tool inputs now use only normalized schema keys.
     return [
         MCPTool(
             name="query_inventory_db",
@@ -150,12 +251,12 @@ def build_inventory_tools() -> list[MCPTool]:
             input_schema={
                 "type": "object",
                 "properties": {
-                    "product_name": {
+                    "name": {
                         "type": "string",
                         "description": "The product name or identifying phrase to search for.",
                     }
                 },
-                "required": ["product_name"],
+                "required": ["name"],
             },
             handler=query_inventory_db,
         ),
@@ -165,12 +266,12 @@ def build_inventory_tools() -> list[MCPTool]:
             input_schema={
                 "type": "object",
                 "properties": {
-                    "product_name": {
+                    "name": {
                         "type": "string",
                         "description": "The product name or identifying phrase to search for.",
                     }
                 },
-                "required": ["product_name"],
+                "required": ["name"],
             },
             handler=get_product_details,
         ),
@@ -197,10 +298,36 @@ def build_inventory_tools() -> list[MCPTool]:
             handler=get_total_inventory_value,
         ),
         MCPTool(
+            name="get_inventory_overview",
+            description="Return a high-level inventory summary with product count, units, total value, stock alerts, and order counts.",
+            input_schema={"type": "object", "properties": {}, "required": []},
+            handler=get_inventory_overview,
+        ),
+        MCPTool(
             name="list_products",
             description="List all products in inventory. Use for requests like show all products, show inventory, or what products do we have.",
             input_schema={"type": "object", "properties": {}, "required": []},
             handler=list_products,
+        ),
+        MCPTool(
+            name="search_inventory_catalog",
+            description="Search inventory flexibly across product name, category, brand, supplier, warehouse location, and description for broad catalog questions.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The free-form search query or product phrase to match against the inventory catalog.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of matches to return.",
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
+            },
+            handler=search_inventory_catalog,
         ),
         MCPTool(
             name="list_out_of_stock_products",
@@ -224,10 +351,37 @@ def build_inventory_tools() -> list[MCPTool]:
             handler=list_products_by_category,
         ),
         MCPTool(
+            name="list_product_categories",
+            description="List the inventory categories along with how many products and units each category contains.",
+            input_schema={"type": "object", "properties": {}, "required": []},
+            handler=list_product_categories,
+        ),
+        MCPTool(
             name="get_cheapest_product",
             description="Return the lowest-priced product in inventory. Use for cheapest, lowest price, or least expensive questions.",
             input_schema={"type": "object", "properties": {}, "required": []},
             handler=get_cheapest_product,
+        ),
+        MCPTool(
+            name="list_orders",
+            description="List recent orders and their statuses. Use for questions about orders, shipments, or restock status.",
+            input_schema={"type": "object", "properties": {}, "required": []},
+            handler=list_orders,
+        ),
+        MCPTool(
+            name="list_orders_by_status",
+            description="List orders filtered by status. Use for pending, arrived, cancelled, shipment, or restock status questions.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Order status to filter by. Allowed values: Pending, Arrived, Cancelled.",
+                    }
+                },
+                "required": ["status"],
+            },
+            handler=list_orders_by_status,
         ),
     ]
 
@@ -287,4 +441,41 @@ def _format_product_list(products: list[dict[str, Any]], heading: str) -> str:
         )
     if len(products) > preview_limit:
         lines.append(f"- ...and {len(products) - preview_limit} more product(s).")
+    return "\n".join(lines)
+
+
+def _format_category_list(categories: list[dict[str, Any]]) -> str:
+    lines = ["Inventory categories"]
+    for item in categories:
+        lines.append(
+            f"- {item['category']} | {item['product_count']} product(s) | {item['total_units']} total unit(s)"
+        )
+    return "\n".join(lines)
+
+
+def _format_inventory_overview(payload: dict[str, Any]) -> str:
+    return (
+        "Inventory overview\n"
+        f"- Products: {payload['total_products']}\n"
+        f"- Categories: {payload['category_count']}\n"
+        f"- Units in stock: {payload['total_units']}\n"
+        f"- Total inventory value: ${payload['total_inventory_value']:,.2f}\n"
+        f"- Low-stock products (<= {payload['low_stock_threshold']}): {payload['low_stock_count']}\n"
+        f"- Out-of-stock products: {payload['out_of_stock_count']}\n"
+        f"- Total orders: {payload['total_orders']}\n"
+        f"- Pending orders: {payload['pending_orders']}\n"
+        f"- Arrived orders: {payload['arrived_orders']}\n"
+        f"- Cancelled orders: {payload['cancelled_orders']}"
+    )
+
+
+def _format_order_list(orders: list[dict[str, Any]], heading: str) -> str:
+    preview_limit = 10
+    lines = [heading]
+    for order in orders[:preview_limit]:
+        lines.append(
+            f"- Order #{order['id']} | {order['name']} | Qty: {order['quantity']} | Status: {order['status']}"
+        )
+    if len(orders) > preview_limit:
+        lines.append(f"- ...and {len(orders) - preview_limit} more order(s).")
     return "\n".join(lines)

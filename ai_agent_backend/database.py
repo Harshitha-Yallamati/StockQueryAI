@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import difflib
 import os
+import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from core_config import get_settings
@@ -31,6 +33,59 @@ ORDER_COLUMNS = [
     "status",
     "order_date",
 ]
+
+SEARCH_STOPWORDS = {
+    "a",
+    "an",
+    "any",
+    "are",
+    "at",
+    "available",
+    "brand",
+    "by",
+    "can",
+    "category",
+    "categories",
+    "cost",
+    "describe",
+    "details",
+    "do",
+    "for",
+    "from",
+    "give",
+    "have",
+    "how",
+    "i",
+    "in",
+    "inventory",
+    "is",
+    "item",
+    "items",
+    "list",
+    "location",
+    "many",
+    "me",
+    "of",
+    "our",
+    "please",
+    "price",
+    "product",
+    "products",
+    "search",
+    "show",
+    "stock",
+    "supplier",
+    "tell",
+    "the",
+    "there",
+    "units",
+    "warehouse",
+    "we",
+    "what",
+    "which",
+    "with",
+    "you",
+}
 
 
 class InventoryDataError(Exception):
@@ -96,8 +151,8 @@ def get_product_by_id(product_id: int) -> dict[str, Any]:
         return _row_to_dict(product)
 
 
-def find_product_by_name(product_name: str) -> dict[str, Any]:
-    cleaned_name = (product_name or "").strip()
+def find_product_by_name(name: str) -> dict[str, Any]:
+    cleaned_name = (name or "").strip()
     if not cleaned_name:
         raise ValidationError("A product name is required.")
 
@@ -128,6 +183,11 @@ def find_product_by_name(product_name: str) -> dict[str, Any]:
         ).fetchone()
         if partial_match:
             return _row_to_dict(partial_match)
+
+        products = [_row_to_dict(row) for row in conn.execute("SELECT * FROM products").fetchall()]
+        ranked_matches = _rank_products_for_query(cleaned_name, products)
+        if ranked_matches and _is_strong_product_match(cleaned_name, ranked_matches[0][0]):
+            return ranked_matches[0][1]
 
     raise ProductNotFoundError(f"Product '{cleaned_name}' was not found in inventory.")
 
@@ -228,9 +288,7 @@ def place_order(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_order_status(order_id: int, status: str) -> dict[str, Any]:
-    normalized_status = (status or "").strip().title()
-    if normalized_status not in {"Pending", "Arrived", "Cancelled"}:
-        raise ValidationError("Status must be Pending, Arrived, or Cancelled.")
+    normalized_status = _normalize_order_status(status)
 
     with closing(get_db_connection()) as conn:
         order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
@@ -315,12 +373,120 @@ def get_total_inventory_value() -> dict[str, Any]:
         }
 
 
+def get_inventory_overview() -> dict[str, Any]:
+    with closing(get_db_connection()) as conn:
+        low_stock_threshold = get_settings().low_stock_threshold
+        product_stats = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_products,
+                COUNT(DISTINCT NULLIF(trim(category), '')) AS category_count,
+                COALESCE(SUM(quantity), 0) AS total_units,
+                COALESCE(SUM(price * quantity), 0) AS total_value,
+                SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) AS out_of_stock_count,
+                SUM(CASE WHEN quantity <= ? THEN 1 ELSE 0 END) AS low_stock_count
+            FROM products
+            """,
+            (low_stock_threshold,),
+        ).fetchone()
+        order_stats = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_orders,
+                SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending_orders,
+                SUM(CASE WHEN status = 'Arrived' THEN 1 ELSE 0 END) AS arrived_orders,
+                SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_orders
+            FROM orders
+            """
+        ).fetchone()
+
+        return {
+            "total_products": int(product_stats["total_products"] or 0),
+            "category_count": int(product_stats["category_count"] or 0),
+            "total_units": int(product_stats["total_units"] or 0),
+            "total_inventory_value": round(float(product_stats["total_value"] or 0.0), 2),
+            "out_of_stock_count": int(product_stats["out_of_stock_count"] or 0),
+            "low_stock_count": int(product_stats["low_stock_count"] or 0),
+            "low_stock_threshold": low_stock_threshold,
+            "total_orders": int(order_stats["total_orders"] or 0),
+            "pending_orders": int(order_stats["pending_orders"] or 0),
+            "arrived_orders": int(order_stats["arrived_orders"] or 0),
+            "cancelled_orders": int(order_stats["cancelled_orders"] or 0),
+        }
+
+
 def get_product_categories() -> list[str]:
     with closing(get_db_connection()) as conn:
         rows = conn.execute(
             "SELECT DISTINCT category FROM products WHERE trim(category) <> '' ORDER BY lower(category)"
         ).fetchall()
         return [str(row["category"]) for row in rows]
+
+
+def get_product_category_counts() -> list[dict[str, Any]]:
+    with closing(get_db_connection()) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                category,
+                COUNT(*) AS product_count,
+                COALESCE(SUM(quantity), 0) AS total_units
+            FROM products
+            WHERE trim(category) <> ''
+            GROUP BY category
+            ORDER BY lower(category)
+            """
+        ).fetchall()
+        return [
+            {
+                "category": str(row["category"]),
+                "product_count": int(row["product_count"] or 0),
+                "total_units": int(row["total_units"] or 0),
+            }
+            for row in rows
+        ]
+
+
+def search_products(query: str, limit: int = 10) -> list[dict[str, Any]]:
+    cleaned_query = (query or "").strip()
+    if not cleaned_query:
+        raise ValidationError("A search query is required.")
+    if limit <= 0:
+        raise ValidationError("Search limit must be greater than zero.")
+
+    with closing(get_db_connection()) as conn:
+        _ensure_inventory_has_products(conn)
+        products = [_row_to_dict(row) for row in conn.execute("SELECT * FROM products").fetchall()]
+
+    ranked_matches = _rank_products_for_query(cleaned_query, products)
+    return [product for _, product in ranked_matches[:limit]]
+
+
+def find_product_candidate(query: str, min_score: int = 120) -> dict[str, Any] | None:
+    cleaned_query = (query or "").strip()
+    if not cleaned_query:
+        return None
+
+    with closing(get_db_connection()) as conn:
+        _ensure_inventory_has_products(conn)
+        products = [_row_to_dict(row) for row in conn.execute("SELECT * FROM products").fetchall()]
+
+    ranked_matches = _rank_products_for_query(cleaned_query, products)
+    if not ranked_matches:
+        return None
+
+    best_score, best_product = ranked_matches[0]
+    return best_product if best_score >= min_score else None
+
+
+def get_orders_by_status(status: str) -> list[dict[str, Any]]:
+    normalized_status = _normalize_order_status(status)
+    with closing(get_db_connection()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM orders WHERE status = ? ORDER BY datetime(order_date) DESC, id DESC",
+            (normalized_status,),
+        ).fetchall()
+        return [_row_to_dict(row) for row in rows]
 
 
 def _migrate_products_table(conn: sqlite3.Connection) -> None:
@@ -332,7 +498,7 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
     existing_rows = []
     if columns:
         rows = conn.execute("SELECT * FROM products").fetchall()
-        existing_rows = [_normalize_product_row(dict(row)) for row in rows]
+        existing_rows = [_normalize_product_row(_normalize_legacy_product_row(dict(row))) for row in rows]
         conn.execute("DROP TABLE products")
 
     _create_products_table(conn)
@@ -371,7 +537,7 @@ def _migrate_orders_table(conn: sqlite3.Connection) -> None:
     existing_rows = []
     if columns:
         rows = conn.execute("SELECT * FROM orders").fetchall()
-        existing_rows = [_normalize_order_row(dict(row)) for row in rows]
+        existing_rows = [_normalize_order_row(_normalize_legacy_order_row(dict(row))) for row in rows]
         conn.execute("DROP TABLE orders")
 
     _create_orders_table(conn)
@@ -453,9 +619,10 @@ def _get_product_by_id(conn: sqlite3.Connection, product_id: int) -> sqlite3.Row
 
 
 def _normalize_product_payload(data: dict[str, Any], partial: bool = False) -> dict[str, Any]:
-    aliases = {
-        "name": data.get("name", data.get("product_name")),
-        "quantity": data.get("quantity", data.get("stock_quantity")),
+    # Migration note: request payloads now accept only normalized schema keys.
+    payload = {
+        "name": data.get("name"),
+        "quantity": data.get("quantity"),
         "price": data.get("price"),
         "category": data.get("category"),
         "brand": data.get("brand"),
@@ -465,7 +632,7 @@ def _normalize_product_payload(data: dict[str, Any], partial: bool = False) -> d
     }
 
     normalized: dict[str, Any] = {}
-    for key, value in aliases.items():
+    for key, value in payload.items():
         if value is None:
             if not partial and key in {"name", "quantity", "price", "category"}:
                 raise ValidationError(f"Field '{key}' is required.")
@@ -504,8 +671,8 @@ def _normalize_product_payload(data: dict[str, Any], partial: bool = False) -> d
 def _normalize_product_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row.get("id") or 0) or None,
-        "name": str(row.get("name") or row.get("product_name") or "Unnamed product").strip(),
-        "quantity": int(row.get("quantity") or row.get("stock_quantity") or 0),
+        "name": str(row.get("name") or "Unnamed product").strip(),
+        "quantity": int(row.get("quantity") or 0),
         "price": float(row.get("price") or 0.0),
         "category": str(row.get("category") or "Uncategorized").strip() or "Uncategorized",
         "brand": str(row.get("brand") or "Unknown").strip() or "Unknown",
@@ -520,12 +687,182 @@ def _normalize_order_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row.get("id") or 0) or None,
         "product_id": int(row.get("product_id") or 0),
-        "name": str(row.get("name") or row.get("product_name") or "Unknown product").strip(),
+        "name": str(row.get("name") or "Unknown product").strip(),
         "quantity": int(row.get("quantity") or 0),
         "total_cost": round(float(row.get("total_cost") or 0.0), 2),
         "status": str(row.get("status") or "Pending").strip().title() or "Pending",
         "order_date": str(row.get("order_date") or _utc_timestamp()),
     }
+
+
+def _normalize_legacy_product_row(row: dict[str, Any]) -> dict[str, Any]:
+    # Migration note: legacy column names are remapped only while rewriting older tables.
+    normalized_row = dict(row)
+    if "name" not in normalized_row and "product_name" in normalized_row:
+        normalized_row["name"] = normalized_row["product_name"]
+    if "quantity" not in normalized_row and "stock_quantity" in normalized_row:
+        normalized_row["quantity"] = normalized_row["stock_quantity"]
+    return normalized_row
+
+
+def _normalize_legacy_order_row(row: dict[str, Any]) -> dict[str, Any]:
+    # Migration note: legacy order rows are normalized during table migration only.
+    normalized_row = dict(row)
+    if "name" not in normalized_row and "product_name" in normalized_row:
+        normalized_row["name"] = normalized_row["product_name"]
+    return normalized_row
+
+
+def _normalize_order_status(status: str) -> str:
+    normalized_status = (status or "").strip().title()
+    if normalized_status not in {"Pending", "Arrived", "Cancelled"}:
+        raise ValidationError("Status must be Pending, Arrived, or Cancelled.")
+    return normalized_status
+
+
+def _extract_search_terms(query: str) -> tuple[str, list[str]]:
+    lowered = query.lower()
+    sanitized = re.sub(r"[^a-z0-9\-\s]", " ", lowered)
+    raw_tokens = [token for token in sanitized.split() if token]
+    filtered_tokens = [
+        token
+        for token in raw_tokens
+        if token not in SEARCH_STOPWORDS and (len(token) > 1 or token.isdigit())
+    ]
+    normalized_query = " ".join(filtered_tokens).strip() or " ".join(raw_tokens).strip()
+    return normalized_query, filtered_tokens or raw_tokens
+
+
+def _rank_products_for_query(query: str, products: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    normalized_query, tokens = _extract_search_terms(query)
+    scored_matches: list[tuple[int, dict[str, Any]]] = []
+    for product in products:
+        score = _score_product_match(product, normalized_query, tokens)
+        if score > 0:
+            scored_matches.append((score, product))
+    scored_matches.sort(key=lambda item: (-item[0], item[1]["name"].lower(), item[1]["id"]))
+    return scored_matches
+
+
+def _score_product_match(product: dict[str, Any], normalized_query: str, tokens: list[str]) -> int:
+    if not normalized_query and not tokens:
+        return 0
+
+    name = _normalized_text(product.get("name"))
+    category = _normalized_text(product.get("category"))
+    brand = _normalized_text(product.get("brand"))
+    supplier = _normalized_text(product.get("supplier"))
+    warehouse = _normalized_text(product.get("warehouse_location"))
+    description = _normalized_text(product.get("description"))
+    combined = " ".join(part for part in (name, category, brand, supplier, warehouse, description) if part)
+
+    score = 0
+    if normalized_query:
+        if normalized_query == name:
+            score += 140
+        elif normalized_query in name:
+            score += 90
+        if normalized_query == category:
+            score += 70
+        elif normalized_query in category:
+            score += 45
+        if normalized_query == brand:
+            score += 70
+        elif normalized_query in brand:
+            score += 45
+        if normalized_query == supplier:
+            score += 55
+        elif normalized_query in supplier:
+            score += 35
+        if normalized_query == warehouse:
+            score += 55
+        elif normalized_query in warehouse:
+            score += 35
+        if normalized_query in description:
+            score += 20
+        if normalized_query in combined:
+            score += 15
+
+    matched_tokens = 0
+    for token in tokens:
+        token_matched = False
+        if token in name:
+            score += 24
+            token_matched = True
+        if token in category:
+            score += 16
+            token_matched = True
+        if token in brand:
+            score += 16
+            token_matched = True
+        if token in supplier:
+            score += 14
+            token_matched = True
+        if token in warehouse:
+            score += 12
+            token_matched = True
+        if token in description:
+            score += 8
+            token_matched = True
+        if not token_matched:
+            fuzzy_score = _best_fuzzy_token_score(token, [name, category, brand, supplier, warehouse, description])
+            if fuzzy_score >= 0.96:
+                score += 18
+                token_matched = True
+            elif fuzzy_score >= 0.9:
+                score += 14
+                token_matched = True
+            elif fuzzy_score >= 0.84:
+                score += 10
+                token_matched = True
+        if token_matched:
+            matched_tokens += 1
+
+    if tokens and matched_tokens == len(tokens):
+        score += 30
+    elif matched_tokens:
+        score += matched_tokens * 4
+
+    if normalized_query:
+        fuzzy_name = _similarity_ratio(normalized_query, name)
+        if fuzzy_name >= 0.92:
+            score += 70
+        elif fuzzy_name >= 0.85:
+            score += 45
+        elif fuzzy_name >= 0.78:
+            score += 25
+
+    return score
+
+
+def _normalized_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _best_fuzzy_token_score(token: str, haystacks: list[str]) -> float:
+    best = 0.0
+    for haystack in haystacks:
+        for candidate in re.split(r"[\s\-_/]+", haystack):
+            if not candidate:
+                continue
+            best = max(best, _similarity_ratio(token, candidate))
+    return best
+
+
+def _similarity_ratio(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return difflib.SequenceMatcher(None, left, right).ratio()
+
+
+def _is_strong_product_match(query: str, score: int) -> bool:
+    normalized_query, tokens = _extract_search_terms(query)
+    token_count = len(tokens or normalized_query.split())
+    if token_count >= 3:
+        return score >= 85
+    if token_count == 2:
+        return score >= 95
+    return score >= 120
 
 
 def _ensure_inventory_has_products(conn: sqlite3.Connection) -> None:
@@ -552,7 +889,7 @@ def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any]:
 
 
 def _utc_timestamp() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 if __name__ == "__main__":
