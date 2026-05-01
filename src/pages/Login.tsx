@@ -11,8 +11,8 @@ export default function Login() {
   const { login, googleLogin } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("samuelvelicharla@gmail.com");
+  const [password, setPassword] = useState("Samuel@2006");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {

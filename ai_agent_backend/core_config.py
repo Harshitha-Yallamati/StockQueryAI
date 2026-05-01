@@ -51,7 +51,7 @@ def get_settings() -> Settings:
         llm_base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1"),
         llm_api_key=os.getenv("OPENAI_API_KEY", "ollama"),
         llm_model=os.getenv("STOCKQUERY_LLM_MODEL", "qwen2.5:1.5b"),
-        llm_timeout_seconds=float(os.getenv("STOCKQUERY_LLM_TIMEOUT_SECONDS", "12")),
+        llm_timeout_seconds=float(os.getenv("STOCKQUERY_LLM_TIMEOUT_SECONDS", "60")),
         low_stock_threshold=int(os.getenv("STOCKQUERY_LOW_STOCK_THRESHOLD", "10")),
         session_history_limit=int(os.getenv("STOCKQUERY_SESSION_HISTORY_LIMIT", "12")),
         cors_origins=origins,

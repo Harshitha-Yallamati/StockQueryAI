@@ -1,15 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth } from '@/lib/firebase';
-import { 
-  User as FirebaseUser,
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut, 
-  onAuthStateChanged,
-  updateProfile
-} from 'firebase/auth';
 
 interface User {
   id: string;
@@ -28,84 +17,60 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-const DEMO_AUTH_TIMEOUT_MS = 2000;
-
-function mapFirebaseUser(firebaseUser: FirebaseUser): User {
-  return {
-    id: firebaseUser.uid,
-    email: firebaseUser.email || '',
-    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-    picture: firebaseUser.photoURL || undefined,
-  };
-}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let resolved = false;
-    const fallbackTimer = window.setTimeout(() => {
-      if (resolved) return;
-      setUser(null);
-      setLoading(false);
-    }, DEMO_AUTH_TIMEOUT_MS);
-
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (firebaseUser) => {
-        resolved = true;
-        window.clearTimeout(fallbackTimer);
-        if (firebaseUser) {
-          setUser(mapFirebaseUser(firebaseUser));
-        } else {
-          setUser(null);
-        }
-        setLoading(false);
-      },
-      () => {
-        resolved = true;
-        window.clearTimeout(fallbackTimer);
+    const storedUser = localStorage.getItem('mockUser');
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
         setUser(null);
-        setLoading(false);
-      },
-    );
-
-    return () => {
-      resolved = true;
-      window.clearTimeout(fallbackTimer);
-      unsubscribe();
-    };
+      }
+    }
+    setLoading(false);
   }, []);
 
   const login = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    if (email === 'samuelvelicharla@gmail.com' && password === 'Samuel@2006') {
+      const mockUser = {
+        id: '1',
+        email: email,
+        name: 'Samuel Velicharla',
+      };
+      setUser(mockUser);
+      localStorage.setItem('mockUser', JSON.stringify(mockUser));
+    } else {
+      throw new Error('Invalid credentials. Default account only.');
+    }
   };
 
   const signup = async (email: string, password: string, name: string) => {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    if (userCredential.user) {
-      await updateProfile(userCredential.user, { displayName: name });
-      setUser({
-        id: userCredential.user.uid,
-        email: userCredential.user.email || email,
-        name: name,
-        picture: userCredential.user.photoURL || undefined
-      });
-    }
+    const mockUser = {
+      id: '1',
+      email: email,
+      name: name,
+    };
+    setUser(mockUser);
+    localStorage.setItem('mockUser', JSON.stringify(mockUser));
   };
 
   const googleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    const mockUser = {
+      id: '1',
+      email: 'samuelvelicharla@gmail.com',
+      name: 'Samuel Velicharla',
+    };
+    setUser(mockUser);
+    localStorage.setItem('mockUser', JSON.stringify(mockUser));
   };
 
   const logout = async () => {
-    try {
-      await signOut(auth);
-    } finally {
-      setUser(null);
-    }
+    setUser(null);
+    localStorage.removeItem('mockUser');
   };
 
   return (

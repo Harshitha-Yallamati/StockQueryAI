@@ -40,19 +40,19 @@ def get_low_stock_products(threshold: int | None = None) -> dict[str, Any]:
     try:
         products = db.get_low_stock_products(threshold)
         if not products:
-            message = f"No products are at or below the low-stock threshold of {threshold}."
+            message = f"No products are below the low-stock threshold of {threshold}."
             return _success(
                 data={"products": [], "count": 0, "threshold": threshold},
                 summary=message,
                 rendered_response=message,
             )
-        summary = f"Found {len(products)} product(s) at or below {threshold} units."
+        summary = f"Found {len(products)} product(s) below {threshold} units."
         return _success(
             data={"products": products, "count": len(products), "threshold": threshold},
             summary=summary,
             rendered_response=_format_product_list(
                 products,
-                heading=f"Products at or below {threshold} units",
+                heading=f"Products below {threshold} units",
             ),
         )
     except db.InventoryDataError as exc:
@@ -247,7 +247,7 @@ def build_inventory_tools() -> list[MCPTool]:
     return [
         MCPTool(
             name="query_inventory_db",
-            description="Get the exact stock quantity for a specific product by name. Use for questions about stock, quantity, availability, or units for one product.",
+            description="Get the exact stock quantity for a specific, named product. Use for direct questions about units, stock, availability, or quantity of one item.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -277,7 +277,7 @@ def build_inventory_tools() -> list[MCPTool]:
         ),
         MCPTool(
             name="get_low_stock_products",
-            description="List products with quantity at or below a threshold. Use for low-stock, reorder, or running-low questions.",
+            description="List products with quantity below a threshold. Use for low-stock, reorder, or running-low questions.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -460,7 +460,7 @@ def _format_inventory_overview(payload: dict[str, Any]) -> str:
         f"- Categories: {payload['category_count']}\n"
         f"- Units in stock: {payload['total_units']}\n"
         f"- Total inventory value: ${payload['total_inventory_value']:,.2f}\n"
-        f"- Low-stock products (<= {payload['low_stock_threshold']}): {payload['low_stock_count']}\n"
+        f"- Low-stock products (< {payload['low_stock_threshold']}): {payload['low_stock_count']}\n"
         f"- Out-of-stock products: {payload['out_of_stock_count']}\n"
         f"- Total orders: {payload['total_orders']}\n"
         f"- Pending orders: {payload['pending_orders']}\n"

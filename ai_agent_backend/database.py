@@ -320,7 +320,7 @@ def get_inventory_stats() -> dict[str, Any]:
             SELECT
                 COUNT(*) AS total_products,
                 COALESCE(SUM(price * quantity), 0) AS total_value,
-                SUM(CASE WHEN quantity <= ? THEN 1 ELSE 0 END) AS low_stock
+                SUM(CASE WHEN quantity < ? THEN 1 ELSE 0 END) AS low_stock
             FROM products
             """,
             (low_stock_threshold,),
@@ -336,7 +336,7 @@ def get_low_stock_products(threshold: int) -> list[dict[str, Any]]:
     with closing(get_db_connection()) as conn:
         _ensure_inventory_has_products(conn)
         rows = conn.execute(
-            "SELECT * FROM products WHERE quantity <= ? ORDER BY quantity ASC, lower(name)",
+            "SELECT * FROM products WHERE quantity < ? ORDER BY quantity ASC, lower(name)",
             (threshold,),
         ).fetchall()
         return [_row_to_dict(row) for row in rows]
@@ -384,7 +384,7 @@ def get_inventory_overview() -> dict[str, Any]:
                 COALESCE(SUM(quantity), 0) AS total_units,
                 COALESCE(SUM(price * quantity), 0) AS total_value,
                 SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) AS out_of_stock_count,
-                SUM(CASE WHEN quantity <= ? THEN 1 ELSE 0 END) AS low_stock_count
+                SUM(CASE WHEN quantity < ? THEN 1 ELSE 0 END) AS low_stock_count
             FROM products
             """,
             (low_stock_threshold,),

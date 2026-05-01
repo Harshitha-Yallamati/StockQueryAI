@@ -64,6 +64,7 @@ Reuse the latest verified context when it is still applicable, and provide a con
 RESPONSE FORMAT:
 1. Call a tool when needed.
 2. Then respond clearly and concisely using only verified results.
+3. If the user asks "how many" or "is X in stock" for a specific product, provide a direct answer (e.g., "There are 310 units.") based on the tool result before or instead of listing technical details.
 """.strip()
 
 SAFE_INVENTORY_FALLBACK = (
@@ -338,76 +339,46 @@ class StockQueryAgent:
             routed_call = None
 
         final_text = ""
-        if used_deterministic_route and tool_executions:
-            final_text = self._deterministic_response(question, tool_executions)
-        else:
-            for _ in range(4):
-                try:
-                    response = await asyncio.to_thread(
-                        self.client.chat.completions.create,
-                        model=settings.llm_model,
-                        messages=messages,
-                        tools=self.registry.openai_tools(),
-                        temperature=0.0,
-                    )
-                except Exception as exc:  # pragma: no cover - depends on runtime LLM availability
-                    llm_error = exc
-                    if isinstance(exc, APITimeoutError):
-                        logger.warning("LLM call timed out; using deterministic fallback.")
-                    else:
-                        logger.exception("LLM call failed safely")
-                    break
+        # Always run the LLM loop so Ollama generates the final response.
+        # When a deterministic route already executed the tool, the result is
+        # already injected into `messages` above, so the model simply phrases it.
+        # _deterministic_response is kept only as a fallback when the LLM fails.
+        for _ in range(4):
+            try:
+                response = await asyncio.to_thread(
+                    self.client.chat.completions.create,
+                    model=settings.llm_model,
+                    messages=messages,
+                    tools=self.registry.openai_tools(),
+                    temperature=0.0,
+                )
+            except Exception as exc:  # pragma: no cover - depends on runtime LLM availability
+                llm_error = exc
+                if isinstance(exc, APITimeoutError):
+                    logger.warning("LLM call timed out; using deterministic fallback.")
+                else:
+                    logger.exception("LLM call failed safely")
+                break
 
-                message = response.choices[0].message
-                if message.tool_calls:
-                    messages.append(self._assistant_message_from_response(message))
-                    for tool_call in message.tool_calls:
-                        arguments = self._load_tool_arguments(tool_call.function.arguments)
-                        yield format_sse(
-                            {
-                                "type": "tool_call",
-                                "call_id": tool_call.id,
-                                "name": tool_call.function.name,
-                                "arguments": arguments,
-                            }
-                        )
-                        execution = self.registry.invoke(tool_call.function.name, arguments)
-                        tool_executions.append(execution)
-                        yield format_sse(
-                            {
-                                "type": "tool_result",
-                                "call_id": tool_call.id,
-                                "name": execution.tool_name,
-                                "ok": execution.ok,
-                                "summary": execution.summary,
-                                "result": execution.result,
-                            }
-                        )
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": json.dumps(execution.result, ensure_ascii=False),
-                            }
-                        )
-                    continue
-
-                if not tool_executions and routed_call is not None:
-                    synthetic_call_id = f"route_{uuid.uuid4().hex}"
+            message = response.choices[0].message
+            if message.tool_calls:
+                messages.append(self._assistant_message_from_response(message))
+                for tool_call in message.tool_calls:
+                    arguments = self._load_tool_arguments(tool_call.function.arguments)
                     yield format_sse(
                         {
                             "type": "tool_call",
-                            "call_id": synthetic_call_id,
-                            "name": routed_call["name"],
-                            "arguments": routed_call["arguments"],
+                            "call_id": tool_call.id,
+                            "name": tool_call.function.name,
+                            "arguments": arguments,
                         }
                     )
-                    execution = self.registry.invoke(routed_call["name"], routed_call["arguments"])
+                    execution = self.registry.invoke(tool_call.function.name, arguments)
                     tool_executions.append(execution)
                     yield format_sse(
                         {
                             "type": "tool_result",
-                            "call_id": synthetic_call_id,
+                            "call_id": tool_call.id,
                             "name": execution.tool_name,
                             "ok": execution.ok,
                             "summary": execution.summary,
@@ -416,36 +387,67 @@ class StockQueryAgent:
                     )
                     messages.append(
                         {
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": [
-                                {
-                                    "id": synthetic_call_id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": routed_call["name"],
-                                        "arguments": json.dumps(routed_call["arguments"]),
-                                    },
-                                }
-                            ],
-                        }
-                    )
-                    messages.append(
-                        {
                             "role": "tool",
-                            "tool_call_id": synthetic_call_id,
+                            "tool_call_id": tool_call.id,
                             "content": json.dumps(execution.result, ensure_ascii=False),
                         }
                     )
-                    routed_call = None
-                    continue
+                continue
 
-                final_text = self._finalize_response(
-                    response_text=message.content or "",
-                    user_message=question,
-                    tool_executions=tool_executions,
+            if not tool_executions and routed_call is not None:
+                synthetic_call_id = f"route_{uuid.uuid4().hex}"
+                yield format_sse(
+                    {
+                        "type": "tool_call",
+                        "call_id": synthetic_call_id,
+                        "name": routed_call["name"],
+                        "arguments": routed_call["arguments"],
+                    }
                 )
-                break
+                execution = self.registry.invoke(routed_call["name"], routed_call["arguments"])
+                tool_executions.append(execution)
+                yield format_sse(
+                    {
+                        "type": "tool_result",
+                        "call_id": synthetic_call_id,
+                        "name": execution.tool_name,
+                        "ok": execution.ok,
+                        "summary": execution.summary,
+                        "result": execution.result,
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": synthetic_call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": routed_call["name"],
+                                    "arguments": json.dumps(routed_call["arguments"]),
+                                },
+                            }
+                        ],
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": synthetic_call_id,
+                        "content": json.dumps(execution.result, ensure_ascii=False),
+                    }
+                )
+                routed_call = None
+                continue
+
+            final_text = self._finalize_response(
+                response_text=message.content or "",
+                user_message=question,
+                tool_executions=tool_executions,
+            )
+            break
 
         if not final_text and not tool_executions and routed_call is not None:
             synthetic_call_id = f"route_{uuid.uuid4().hex}"
@@ -587,6 +589,8 @@ class StockQueryAgent:
                 return {"name": "get_product_details", "arguments": {"name": extracted_name}}
 
             if self._contains_fuzzy_phrase(question, STOCK_INTENT_PHRASES):
+                # Broad availability/catalog asks should stay on catalog search even
+                # if fuzzy matching can guess a single product candidate.
                 if self._contains_fuzzy_token(question, ("products", "items", "brand", "supplier", "warehouse", "category")):
                     return {"name": "search_inventory_catalog", "arguments": {"query": question}}
                 return {"name": "query_inventory_db", "arguments": {"name": extracted_name}}
@@ -719,7 +723,7 @@ class StockQueryAgent:
             return False
         has_category_word = self._contains_fuzzy_token(
             user_message,
-            ("category", "categories", "products", "items", "inventory", "show", "list", "filter"),
+            ("category", "categories", "products", "items", "inventory", "show", "list", "filter", "device", "devices", "gadget", "gear", "systems", "tech"),
         )
         return has_category_word and (
             category_normalized in normalized
