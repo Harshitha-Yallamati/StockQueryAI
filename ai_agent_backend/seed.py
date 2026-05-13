@@ -7,9 +7,6 @@ import sqlite3
 import database
 
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "agent_inventory.db")
-
-
 def generate_fake_data() -> list[tuple[str, int, float, str, str, str, str, str]]:
     brands = ["Sony", "Samsung", "Apple", "Dell", "HP", "Lenovo", "Asus", "Logitech", "Corsair", "Razer", "LG", "Bose"]
     categories = {
@@ -54,7 +51,9 @@ def generate_fake_data() -> list[tuple[str, int, float, str, str, str, str, str]
 def seed_db() -> None:
     database.init_db()
     seed_data = generate_fake_data()
-    conn = sqlite3.connect(DB_PATH)
+    db_path = database.get_settings().database_path
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
     try:
         conn.execute("DELETE FROM orders")
         conn.execute("DELETE FROM products")

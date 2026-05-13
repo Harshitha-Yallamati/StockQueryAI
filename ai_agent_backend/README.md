@@ -69,6 +69,21 @@ After startup:
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - ReDoc: `http://127.0.0.1:8000/redoc`
 
+## Deploying To Render
+
+The repository root includes a [`render.yaml`](../render.yaml) Blueprint for this backend.
+
+It configures:
+
+- `rootDir: ai_agent_backend`
+- `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- a persistent disk mounted at `/var/data`
+- SQLite and Chroma paths under `/var/data`
+- Gemini env defaults with `OPENAI_API_KEY` prompted as a secret
+- automatic one-time demo seeding on empty databases
+
+For this app, a persistent disk matters because the backend stores inventory and embeddings on the local filesystem.
+
 ## Configuration
 
 The backend loads environment variables from `.env` with `python-dotenv`.

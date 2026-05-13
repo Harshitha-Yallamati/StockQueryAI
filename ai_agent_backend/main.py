@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 import database as db
+import seed as demo_seed
 from agent import stock_query_agent, stream_agent, tool_registry
 from api_schemas import (
     AskRequest,
@@ -47,6 +48,9 @@ mcp_server = MCPServer(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
+    if settings.auto_seed and db.get_inventory_stats()["totalProducts"] == 0:
+        logger.info("Inventory is empty. Seeding demo products for startup.")
+        demo_seed.seed_db()
     yield
 
 

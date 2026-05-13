@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: stockquery-ai-backend
+    runtime: python
+    plan: starter
+    rootDir: ai_agent_backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    autoDeploy: true
+    disk:
+      name: stockquery-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: OPENAI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: STOCKQUERY_LLM_MODEL
+        value: gemini-2.5-flash
+      - key: STOCKQUERY_DB_PATH
+        value: /var/data/agent_inventory.db
+      - key: STOCKQUERY_CHROMA_PATH
+        value: /var/data/chroma_db
+      - key: STOCKQUERY_LOW_STOCK_THRESHOLD
+        value: "10"
+      - key: STOCKQUERY_LLM_TIMEOUT_SECONDS
+        value: "60"
+      - key: STOCKQUERY_SESSION_HISTORY_LIMIT
+        value: "12"
+      - key: STOCKQUERY_AUTO_SEED
+        value: "true"
