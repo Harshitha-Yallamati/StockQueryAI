@@ -6,9 +6,10 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 
+
+load_dotenv()
+
 BASE_DIR = os.path.dirname(__file__)
-load_dotenv(os.path.join(BASE_DIR, ".env"))
-load_dotenv(os.path.join(BASE_DIR, ".env.local"), override=True)
 
 
 @dataclass(frozen=True)
@@ -24,23 +25,6 @@ class Settings:
     low_stock_threshold: int
     session_history_limit: int
     cors_origins: tuple[str, ...]
-    auto_seed: bool
-
-
-def _resolve_data_path(value: str, default_name: str) -> str:
-    raw_value = (value or "").strip()
-    if not raw_value:
-        return os.path.join(BASE_DIR, default_name)
-    if os.path.isabs(raw_value):
-        return raw_value
-    return os.path.normpath(os.path.join(BASE_DIR, raw_value))
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @lru_cache(maxsize=1)
@@ -56,13 +40,13 @@ def get_settings() -> Settings:
     return Settings(
         app_name="StockQuery AI Agent Backend",
         app_version="2.0.0",
-        database_path=_resolve_data_path(
-            os.getenv("STOCKQUERY_DB_PATH", ""),
-            "agent_inventory.db",
+        database_path=os.getenv(
+            "STOCKQUERY_DB_PATH",
+            os.path.join(BASE_DIR, "agent_inventory.db"),
         ),
-        chroma_path=_resolve_data_path(
-            os.getenv("STOCKQUERY_CHROMA_PATH", ""),
-            "chroma_db",
+        chroma_path=os.getenv(
+            "STOCKQUERY_CHROMA_PATH",
+            os.path.join(BASE_DIR, "chroma_db"),
         ),
         llm_base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1"),
         llm_api_key=os.getenv("OPENAI_API_KEY", "ollama"),
@@ -71,5 +55,4 @@ def get_settings() -> Settings:
         low_stock_threshold=int(os.getenv("STOCKQUERY_LOW_STOCK_THRESHOLD", "10")),
         session_history_limit=int(os.getenv("STOCKQUERY_SESSION_HISTORY_LIMIT", "12")),
         cors_origins=origins,
-        auto_seed=_env_flag("STOCKQUERY_AUTO_SEED", default=False),
     )

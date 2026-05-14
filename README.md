@@ -1,4 +1,4 @@
- # StockQuery AI: Inventory Intelligence Agent
+# StockQuery AI: Inventory Intelligence Agent
 
 StockQuery AI is a full-stack retail inventory assistant that answers questions from verified data instead of guessing. The frontend provides a dashboard, chat assistant, product management, low-stock alerts, and order tracking. The backend uses FastAPI, SQLite, ChromaDB, and an MCP-compatible tool layer so the agent can query structured systems before responding.
 
@@ -196,12 +196,6 @@ If you start FastAPI on `8001`, update `.env.local` to:
 VITE_API_BASE=http://localhost:8001
 ```
 
-For your current deployed frontend/backend pair:
-
-```env
-VITE_API_BASE=https://stockqueryai-zjqo.onrender.com
-```
-
 ## Environment Notes
 
 ### Frontend
@@ -222,34 +216,6 @@ Important backend variables from `ai_agent_backend/.env.example`:
 - `STOCKQUERY_LOW_STOCK_THRESHOLD`: default restock threshold
 - `STOCKQUERY_SESSION_HISTORY_LIMIT`: chat memory depth
 - `STOCKQUERY_CORS_ORIGINS`: allowed frontend origins
-
-Current deployed origins:
-
-- Frontend: `https://stockqueryai.vercel.app`
-- Backend: `https://stockqueryai-zjqo.onrender.com`
-
-## Backend Deployment On Render
-
-This repo now includes [`render.yaml`](./render.yaml) for the backend service.
-
-Important deployment notes:
-
-- The backend is configured as a Render `web` service with `rootDir: ai_agent_backend`.
-- It uses a persistent disk mounted at `/var/data` because SQLite and Chroma need storage that survives restarts and deploys.
-- A fresh deploy auto-seeds the demo inventory once when the database is empty.
-- You must provide `OPENAI_API_KEY` in Render during the initial Blueprint setup.
-
-Render-specific runtime values are configured in `render.yaml`:
-
-```yaml
-OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-STOCKQUERY_LLM_MODEL=gemini-2.5-flash
-STOCKQUERY_DB_PATH=/var/data/agent_inventory.db
-STOCKQUERY_CHROMA_PATH=/var/data/chroma_db
-STOCKQUERY_AUTO_SEED=true
-```
-
-Because Render's filesystem is ephemeral by default, the service uses the `starter` plan in the Blueprint so a persistent disk can be attached.
 
 ## Useful Endpoints
 
