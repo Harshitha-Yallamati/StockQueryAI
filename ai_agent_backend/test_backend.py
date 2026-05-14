@@ -9,6 +9,20 @@ import database
 import main
 from inventory_tools import get_cheapest_product
 
+
+def _mock_completion_response(content: str):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=content,
+                    tool_calls=[],
+                )
+            )
+        ]
+    )
+
+
 @pytest.fixture(autouse=True)
 def setup_test_db(monkeypatch):
     db_uri = f"file:stockquery-test-{uuid.uuid4().hex}?mode=memory&cache=shared"
@@ -241,3 +255,56 @@ def test_chat_reuses_previous_verified_order_result(client):
     assert "Based on the latest verified result:" in second_data["answer"]
     assert "Cheap Mouse" in second_data["answer"]
     assert second_data["tools_used"] == []
+
+
+def test_chat_generates_session_id_when_missing(client):
+    response = client.post("/api/chat", json={"question": "What is the cheapest product?"})
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data["session_id"], str)
+    assert len(data["session_id"]) >= 8
+
+
+def test_chat_follow_up_uses_previous_assistant_context(client, monkeypatch):
+    def mock_llm_create(*args, **kwargs):
+        messages = kwargs["messages"]
+        latest_user = messages[-1]["content"]
+        if latest_user == "In one sentence.":
+            previous_assistant_messages = [
+                message["content"]
+                for message in messages
+                if message["role"] == "assistant" and isinstance(message.get("content"), str)
+            ]
+            assert any("Cheap Mouse" in content for content in previous_assistant_messages)
+            return _mock_completion_response(
+                "The cheapest available product is Cheap Mouse priced at $19.99."
+            )
+        raise RuntimeError("LLM disabled during tests")
+
+    monkeypatch.setattr(
+        main.stock_query_agent,
+        "client",
+        SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=mock_llm_create),
+            )
+        ),
+    )
+
+    first = client.post("/api/chat", json={
+        "question": "What is the cheapest product?",
+        "session_id": "test_follow_up_session",
+    })
+    assert first.status_code == 200
+    first_data = first.json()
+    assert "Cheap Mouse" in first_data["answer"]
+
+    second = client.post("/api/chat", json={
+        "question": "In one sentence.",
+        "session_id": "test_follow_up_session",
+    })
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["session_id"] == "test_follow_up_session"
+    assert "Cheap Mouse" in second_data["answer"]
+    assert "priced at $19.99" in second_data["answer"]

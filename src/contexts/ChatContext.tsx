@@ -17,10 +17,21 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const sessionStorageKey = user?.id ? `stockquery-chat-session:${user.id}` : "stockquery-chat-session:anonymous";
 
   useEffect(() => {
     setMessages([]);
-  }, [user?.id]);
+    setSessionId(window.sessionStorage.getItem(sessionStorageKey));
+  }, [sessionStorageKey]);
+
+  useEffect(() => {
+    if (sessionId) {
+      window.sessionStorage.setItem(sessionStorageKey, sessionId);
+      return;
+    }
+    window.sessionStorage.removeItem(sessionStorageKey);
+  }, [sessionId, sessionStorageKey]);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
@@ -33,7 +44,11 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     ]);
 
     try {
-      const response = await sendChatMessage(text, user?.id);
+      const response = await sendChatMessage(text, sessionId ?? undefined, user?.id);
+      const nextSessionId = response.headers.get("X-Session-ID");
+      if (nextSessionId) {
+        setSessionId(nextSessionId);
+      }
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
@@ -69,7 +84,9 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
   const clearChat = () => {
     setMessages([]);
-    void clearChatSession(user?.id).catch(console.error);
+    const activeSessionId = sessionId;
+    setSessionId(null);
+    void clearChatSession(activeSessionId ?? undefined, user?.id).catch(console.error);
   };
 
   return (

@@ -7,7 +7,7 @@ from typing import Any
 
 class SessionStore:
     def __init__(self, max_messages: int = 12) -> None:
-        self._max_messages = max_messages * 2
+        self._max_messages = max_messages
         self._sessions: dict[str, deque[dict[str, Any]]] = {}
         self._lock = RLock()
 

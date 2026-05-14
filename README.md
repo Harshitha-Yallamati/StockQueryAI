@@ -196,6 +196,12 @@ If you start FastAPI on `8001`, update `.env.local` to:
 VITE_API_BASE=http://localhost:8001
 ```
 
+For your current deployed frontend/backend pair:
+
+```env
+VITE_API_BASE=https://stockqueryai-zjqo.onrender.com
+```
+
 ## Environment Notes
 
 ### Frontend
@@ -216,6 +222,11 @@ Important backend variables from `ai_agent_backend/.env.example`:
 - `STOCKQUERY_LOW_STOCK_THRESHOLD`: default restock threshold
 - `STOCKQUERY_SESSION_HISTORY_LIMIT`: chat memory depth
 - `STOCKQUERY_CORS_ORIGINS`: allowed frontend origins
+
+Current deployed origins:
+
+- Frontend: `https://stockqueryai.vercel.app`
+- Backend: `https://stockqueryai-zjqo.onrender.com`
 
 ## Backend Deployment On Render
 

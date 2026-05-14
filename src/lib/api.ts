@@ -78,7 +78,7 @@ export async function deleteProduct(id: number) {
   );
 }
 
-export async function sendChatMessage(message: string, userId?: string) {
+export async function sendChatMessage(message: string, sessionId?: string, userId?: string) {
   const headers = new Headers({
     "Content-Type": "application/json",
     "Accept": "text/event-stream",
@@ -90,7 +90,7 @@ export async function sendChatMessage(message: string, userId?: string) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ question: message }),
+    body: JSON.stringify({ question: message, session_id: sessionId }),
   });
 
   if (!response.ok) {
@@ -100,10 +100,13 @@ export async function sendChatMessage(message: string, userId?: string) {
   return response;
 }
 
-export async function clearChatSession(userId?: string) {
+export async function clearChatSession(sessionId?: string, userId?: string) {
   const headers = new Headers();
   if (userId) {
     headers.set("X-User-ID", userId);
+  }
+  if (sessionId) {
+    headers.set("X-Session-ID", sessionId);
   }
 
   return fetchJson<{ status: string; session_id: string }>(

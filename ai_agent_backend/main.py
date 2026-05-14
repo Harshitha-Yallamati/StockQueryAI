@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -66,6 +67,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Session-ID"],
 )
 
 
@@ -81,6 +83,7 @@ async def ask_question(req: AskRequest, request: Request):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "X-Session-ID": session_id,
         },
     )
 
@@ -297,7 +300,7 @@ def _resolve_session_id(request: Request, body_session_id: str | None) -> str:
         body_session_id
         or request.headers.get("x-user-id")
         or request.headers.get("x-session-id")
-        or "anonymous"
+        or uuid.uuid4().hex
     )
 
 

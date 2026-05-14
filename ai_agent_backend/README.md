@@ -97,7 +97,7 @@ The backend loads environment variables from `.env` with `python-dotenv`.
 | `STOCKQUERY_LLM_MODEL` | `qwen2.5:1.5b` | Chat model used by the agent. |
 | `STOCKQUERY_LOW_STOCK_THRESHOLD` | `10` | Default threshold for low-stock alerts and routing. |
 | `STOCKQUERY_SESSION_HISTORY_LIMIT` | `12` | Number of prior user/assistant turns retained per session. |
-| `STOCKQUERY_CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081` | Comma-separated frontend origins allowed by CORS. |
+| `STOCKQUERY_CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081` | Comma-separated frontend origins allowed by CORS. Include your deployed frontend domain in production, for example `https://stockqueryai.vercel.app`. |
 
 Important:
 
