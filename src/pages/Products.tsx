@@ -52,23 +52,29 @@ export default function Products() {
     loadProducts();
   }, []);
 
-  const handleEdit = async (id: number) => {
+  const fillProductForm = (product: Product) => {
+    setFormData({
+      name: product.name,
+      category: product.category,
+      brand: product.brand,
+      price: product.price,
+      quantity: product.quantity,
+      warehouse_location: product.warehouse_location,
+      supplier: product.supplier,
+      description: product.description,
+    });
+    setEditingId(product.id);
+    setIsSheetOpen(true);
+  };
+
+  const handleEdit = async (product: Product) => {
+    fillProductForm(product);
+
     try {
-      const details = await fetchProductDetails(id);
-      setFormData({
-        name: details.name,
-        category: details.category,
-        brand: details.brand,
-        price: details.price,
-        quantity: details.quantity,
-        warehouse_location: details.warehouse_location,
-        supplier: details.supplier,
-        description: details.description,
-      });
-      setEditingId(id);
-      setIsSheetOpen(true);
+      const details = await fetchProductDetails(product.id);
+      fillProductForm(details);
     } catch {
-      toast.error("Failed to load product details");
+      toast.warning("Showing details from the product list");
     }
   };
 
@@ -203,7 +209,7 @@ export default function Products() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
-                          <button onClick={() => handleEdit(product.id)} className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors">
+                          <button onClick={() => handleEdit(product)} className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors">
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button onClick={() => handleDelete(product.id)} className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive transition-colors">

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import database
 import main
 from inventory_tools import get_cheapest_product
+from mcp import ToolExecution
 
 @pytest.fixture(autouse=True)
 def setup_test_db(monkeypatch):
@@ -83,6 +84,43 @@ def test_get_inventory(client):
     names = [p["name"] for p in data]
     assert "Test Laptop" in names
     assert "Cheap Mouse" in names
+
+def test_llm_rewrite_with_verified_numbers_is_allowed():
+    execution = ToolExecution(
+        tool_name="get_product_details",
+        arguments={"name": "Test Laptop"},
+        result={"name": "Test Laptop", "quantity": 5, "price": 999.99},
+        ok=True,
+        summary="Test Laptop has 5 units.",
+        rendered_response="Test Laptop: 5 units available at $999.99.",
+    )
+
+    response = main.stock_query_agent._finalize_response(
+        "Test Laptop is available with 5 units in stock. Its price is $999.99.",
+        "How many Test Laptop units are available?",
+        [execution],
+    )
+
+    assert response == "Test Laptop is available with 5 units in stock. Its price is $999.99."
+
+
+def test_llm_rewrite_with_invented_numbers_falls_back_to_tool_output():
+    execution = ToolExecution(
+        tool_name="get_product_details",
+        arguments={"name": "Test Laptop"},
+        result={"name": "Test Laptop", "quantity": 5, "price": 999.99},
+        ok=True,
+        summary="Test Laptop has 5 units.",
+        rendered_response="Test Laptop: 5 units available at $999.99.",
+    )
+
+    response = main.stock_query_agent._finalize_response(
+        "Test Laptop is available with 50 units in stock. Its price is $999.99.",
+        "How many Test Laptop units are available?",
+        [execution],
+    )
+
+    assert response == "Test Laptop has 5 units.\nTest Laptop: 5 units available at $999.99."
 
 def test_cheapest_product_tool():
     result = get_cheapest_product()

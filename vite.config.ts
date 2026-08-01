@@ -5,7 +5,7 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiTarget = (env.VITE_API_BASE || "http://localhost:8000").replace(/\/$/, "");
+  const apiTarget = (env.VITE_API_BASE || "http://localhost:8081").replace(/\/$/, "");
 
   return {
     server: {

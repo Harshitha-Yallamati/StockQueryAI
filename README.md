@@ -118,6 +118,13 @@ StockQueryAI/
 
 For backend-specific API details, see [`ai_agent_backend/README.md`](./ai_agent_backend/README.md).
 
+## Deployed URLs
+
+- Frontend: `https://stockqueryai.vercel.app/`
+- Backend: `https://stockqueryai-zjqo.onrender.com`
+
+For production frontend builds, `VITE_API_BASE` points to the Render backend. The backend CORS configuration allows the Vercel frontend origin.
+
 ## Local Development Setup
 
 ### 1. Start the local LLM

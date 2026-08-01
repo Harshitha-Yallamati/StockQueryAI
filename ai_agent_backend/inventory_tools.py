@@ -86,14 +86,25 @@ def get_inventory_overview() -> dict[str, Any]:
     )
 
 
-def list_products() -> dict[str, Any]:
+def list_products(format: str = "list") -> dict[str, Any]:
     try:
         products = db.get_all_products()
         summary = f"Retrieved {len(products)} product(s) from inventory."
+        
+        # Format based on requested format
+        if format == "table":
+            rendered = _format_product_table(products, heading="Inventory products")
+        elif format == "summary":
+            rendered = _format_summary(products, heading="Inventory Summary")
+        elif format == "comparison" and len(products) >= 2:
+            rendered = _format_product_comparison(products[:2])  # Compare first 2 products
+        else:
+            rendered = _format_product_list(products, heading="Inventory products")
+        
         return _success(
-            data={"products": products, "count": len(products)},
+            data={"products": products, "count": len(products), "format": format},
             summary=summary,
-            rendered_response=_format_product_list(products, heading="Inventory products"),
+            rendered_response=rendered,
         )
     except db.InventoryDataError as exc:
         return _error(exc.code, str(exc))
@@ -305,8 +316,19 @@ def build_inventory_tools() -> list[MCPTool]:
         ),
         MCPTool(
             name="list_products",
-            description="List all products in inventory. Use for requests like show all products, show inventory, or what products do we have.",
-            input_schema={"type": "object", "properties": {}, "required": []},
+            description="List all products in inventory. Use for requests like show all products, show inventory, or what products do we have. Supports format parameter: 'list' (default), 'table', 'summary', or 'comparison'.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "Output format: 'list', 'table', 'summary', or 'comparison'",
+                        "enum": ["list", "table", "summary", "comparison"],
+                        "default": "list",
+                    }
+                },
+                "required": [],
+            },
             handler=list_products,
         ),
         MCPTool(
@@ -478,4 +500,69 @@ def _format_order_list(orders: list[dict[str, Any]], heading: str) -> str:
         )
     if len(orders) > preview_limit:
         lines.append(f"- ...and {len(orders) - preview_limit} more order(s).")
+    return "\n".join(lines)
+
+
+def _format_product_table(products: list[dict[str, Any]], heading: str) -> str:
+    if not products:
+        return f"{heading}\nNo matching products found."
+    
+    lines = [heading, ""]
+    lines.append("| Name | Category | Price | Quantity | Brand | Supplier |")
+    lines.append("|------|----------|-------|----------|-------|----------|")
+    
+    preview_limit = 15
+    for product in products[:preview_limit]:
+        lines.append(
+            f"| {product['name']} | {product['category']} | ${product['price']:.2f} | {product['quantity']} | {product['brand']} | {product['supplier']} |"
+        )
+    
+    if len(products) > preview_limit:
+        lines.append(f"\n*...and {len(products) - preview_limit} more product(s).*")
+    
+    return "\n".join(lines)
+
+
+def _format_product_comparison(products: list[dict[str, Any]]) -> str:
+    if len(products) < 2:
+        return "Comparison requires at least 2 products."
+    
+    lines = ["Product Comparison", ""]
+    
+    # Create comparison table
+    lines.append("| Attribute | " + " | ".join([f"Product {i+1}" for i in range(len(products))]) + " |")
+    lines.append("|-----------|" + "|".join(["-----------" for _ in range(len(products))]) + "|")
+    
+    attributes = ["name", "category", "price", "quantity", "brand", "supplier"]
+    attribute_labels = ["Name", "Category", "Price", "Quantity", "Brand", "Supplier"]
+    
+    for attr, label in zip(attributes, attribute_labels):
+        row_values = []
+        for product in products:
+            if attr == "price":
+                row_values.append(f"${product[attr]:.2f}")
+            else:
+                row_values.append(str(product[attr]))
+        lines.append(f"| {label} | " + " | ".join(row_values) + " |")
+    
+    return "\n".join(lines)
+
+
+def _format_summary(products: list[dict[str, Any]], heading: str) -> str:
+    if not products:
+        return f"{heading}\nNo products found."
+    
+    total_products = len(products)
+    total_quantity = sum(p["quantity"] for p in products)
+    total_value = sum(p["price"] * p["quantity"] for p in products)
+    categories = set(p["category"] for p in products)
+    avg_price = sum(p["price"] for p in products) / total_products if products else 0
+    
+    lines = [heading, ""]
+    lines.append(f"**Summary:** {total_products} products across {len(categories)} categories")
+    lines.append(f"**Total Stock:** {total_quantity} units")
+    lines.append(f"**Total Value:** ${total_value:,.2f}")
+    lines.append(f"**Average Price:** ${avg_price:.2f}")
+    lines.append(f"**Categories:** {', '.join(sorted(categories))}")
+    
     return "\n".join(lines)

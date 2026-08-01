@@ -7,9 +7,14 @@ from functools import lru_cache
 from dotenv import load_dotenv
 
 
-load_dotenv()
-
 BASE_DIR = os.path.dirname(__file__)
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+
+def _backend_relative_path(value: str) -> str:
+    if os.path.isabs(value):
+        return os.path.normpath(value)
+    return os.path.normpath(os.path.join(BASE_DIR, value))
 
 
 @dataclass(frozen=True)
@@ -33,21 +38,15 @@ def get_settings() -> Settings:
         origin.strip()
         for origin in os.getenv(
             "STOCKQUERY_CORS_ORIGINS",
-            "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081",
+            "https://stockqueryai.vercel.app,http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081",
         ).split(",")
         if origin.strip()
     )
     return Settings(
         app_name="StockQuery AI Agent Backend",
         app_version="2.0.0",
-        database_path=os.getenv(
-            "STOCKQUERY_DB_PATH",
-            os.path.join(BASE_DIR, "agent_inventory.db"),
-        ),
-        chroma_path=os.getenv(
-            "STOCKQUERY_CHROMA_PATH",
-            os.path.join(BASE_DIR, "chroma_db"),
-        ),
+        database_path=_backend_relative_path(os.getenv("STOCKQUERY_DB_PATH", "agent_inventory.db")),
+        chroma_path=_backend_relative_path(os.getenv("STOCKQUERY_CHROMA_PATH", "chroma_db")),
         llm_base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1"),
         llm_api_key=os.getenv("OPENAI_API_KEY", "ollama"),
         llm_model=os.getenv("STOCKQUERY_LLM_MODEL", "qwen2.5:1.5b"),

@@ -41,9 +41,22 @@ CORE RULES:
 1. NEVER guess or hallucinate data.
 2. ALWAYS use tools when the query involves inventory, products, stock, or orders.
 3. ONLY answer based on tool results.
-4. If no data is found, clearly say it is not available.
-5. Do NOT repeat the same tool unnecessarily.
-6. Do NOT call tools for greetings or casual messages.
+4. The LLM's role is only to rewrite verified tool outputs in natural language.
+5. Do NOT add facts, quantities, prices, names, categories, statuses, dates, recommendations, or assumptions that are not present in tool results.
+6. If tool results are empty, failed, or insufficient, clearly say the information is not available from verified data.
+7. If no tool result has verified the answer, do not answer the inventory question from memory.
+8. Do NOT repeat the same tool unnecessarily.
+9. Do NOT call tools for greetings or casual messages.
+
+RESPONSE FORMATTING:
+Act as a senior API integrator and AI analyst. Format your responses based on the user's request:
+- If the user asks for a summary → provide a concise summary
+- If the user asks for sentences → write in complete sentences
+- If the user asks for bullets → use bullet points
+- If the user asks for a table → use markdown table format
+- If the user asks for a comparison → compare the products directly
+- NEVER return raw JSON unless explicitly requested
+- Always use verified inventory data from tool results
 
 GREETING BEHAVIOR:
 If the user says hi, hello, or hlo, respond with:
@@ -63,8 +76,10 @@ Reuse the latest verified context when it is still applicable, and provide a con
 
 RESPONSE FORMAT:
 1. Call a tool when needed.
-2. Then respond clearly and concisely using only verified results.
+2. Then respond clearly and concisely using only verified tool results.
 3. If the user asks "how many" or "is X in stock" for a specific product, provide a direct answer (e.g., "There are 310 units.") based on the tool result before or instead of listing technical details.
+4. Preserve exact values from tools; do not invent or round numbers.
+5. Apply the requested formatting (summary, sentences, bullets, table, comparison) based on user's explicit request.
 """.strip()
 
 SAFE_INVENTORY_FALLBACK = (
@@ -181,6 +196,14 @@ CHEAPEST_PRODUCT_PHRASES = (
     "lowest price",
     "lowest priced",
 )
+
+FORMAT_PHRASES = {
+    "summary": ("summary", "summarize", "overview", "brief"),
+    "table": ("table", "tabular", "spreadsheet", "grid"),
+    "bullets": ("bullets", "bullet points", "list", "bullet"),
+    "comparison": ("compare", "comparison", "versus", "vs", "difference"),
+    "sentences": ("sentences", "paragraph", "narrative", "prose"),
+}
 
 ORDER_HINTS = (
     "order",
@@ -565,7 +588,9 @@ class StockQueryAgent:
             return {"name": "list_orders", "arguments": {}}
 
         if self._is_global_products_request(question):
-            return {"name": "list_products", "arguments": {}}
+            requested_format = self._detect_requested_format(question)
+            args = {"format": requested_format} if requested_format else {}
+            return {"name": "list_products", "arguments": args}
 
         if self._contains_fuzzy_phrase(question, OUT_OF_STOCK_PHRASES):
             return {"name": "list_out_of_stock_products", "arguments": {}}
@@ -633,6 +658,13 @@ class StockQueryAgent:
             return int(match.group(1))
         return None
 
+    def _detect_requested_format(self, question: str) -> str | None:
+        lowered = question.lower()
+        for format_type, phrases in FORMAT_PHRASES.items():
+            if any(phrase in lowered for phrase in phrases):
+                return format_type
+        return None
+
     def _finalize_response(
         self,
         response_text: str,
@@ -641,12 +673,39 @@ class StockQueryAgent:
     ) -> str:
         cleaned = response_text.strip()
         if tool_executions:
-            return cleaned or self._deterministic_response(user_message, tool_executions)
+            fallback = self._deterministic_response(user_message, tool_executions)
+            if cleaned and self._is_grounded_tool_rewrite(cleaned, tool_executions):
+                return cleaned
+            return fallback
 
         if self._looks_inventory_query(user_message):
             return self._safe_fallback(user_message)
 
         return cleaned or SAFE_GENERAL_FALLBACK
+
+    def _is_grounded_tool_rewrite(
+        self,
+        response_text: str,
+        tool_executions: list[ToolExecution],
+    ) -> bool:
+        verified_text = self._verified_tool_text(tool_executions)
+        if not verified_text:
+            return False
+
+        verified_numbers = set(re.findall(r"\d+(?:\.\d+)?", verified_text))
+        response_numbers = set(re.findall(r"\d+(?:\.\d+)?", response_text))
+        return response_numbers.issubset(verified_numbers)
+
+    def _verified_tool_text(self, tool_executions: list[ToolExecution]) -> str:
+        verified_parts: list[str] = []
+        for execution in tool_executions:
+            if execution.summary:
+                verified_parts.append(execution.summary)
+            if execution.rendered_response:
+                verified_parts.append(execution.rendered_response)
+            if execution.result:
+                verified_parts.append(json.dumps(execution.result, ensure_ascii=False, sort_keys=True))
+        return "\n".join(verified_parts)
 
     def _deterministic_response(
         self,
