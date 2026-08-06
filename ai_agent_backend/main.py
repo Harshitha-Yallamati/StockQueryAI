@@ -47,6 +47,25 @@ mcp_server = MCPServer(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
+    
+    # Auto-seed database if empty
+    if db.is_database_empty():
+        logger.info("Database is empty. Attempting to seed with Kaggle dataset...")
+        try:
+            from seed_retail_inventory import download_and_seed
+            download_and_seed()
+            logger.info("Database seeded successfully with Kaggle dataset.")
+        except Exception as exc:
+            logger.error(f"Failed to seed database with Kaggle dataset: {exc}")
+            logger.info("Attempting fallback seeding with synthetic data...")
+            try:
+                from seed import seed_db
+                seed_db()
+                logger.info("Database seeded successfully with synthetic data.")
+            except Exception as fallback_exc:
+                logger.error(f"Failed to seed database with synthetic data: {fallback_exc}")
+                logger.warning("Database remains empty. Some features may not work properly.")
+    
     yield
 
 
@@ -274,17 +293,26 @@ def health_check():
         product_count = stats["totalProducts"]
         status = "ok"
     except Exception:
-        logger.exception("Health check failed to query inventory database")
-        db_status = "unavailable"
+        db_status = "error"
         product_count = 0
-        status = "degraded"
-
+        status = "error"
+    
     return {
         "status": status,
-        "db_status": db_status,
-        "product_count": product_count,
-        "llm_model": settings.llm_model,
+        "service": settings.app_name,
         "version": settings.app_version,
+        "database": {
+            "status": db_status,
+            "product_count": product_count,
+            "is_empty": db.is_database_empty() if db_status == "connected" else True,
+            "path": settings.database_path
+        },
+        "llm": {
+            "configured": bool(settings.llm_api_key and settings.llm_api_key != "ollama"),
+            "model": settings.llm_model,
+            "base_url": settings.llm_base_url
+        },
+        "cors_origins": settings.cors_origins
     }
 
 

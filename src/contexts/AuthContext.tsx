@@ -35,17 +35,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const login = async (email: string, password: string) => {
-    if (email === 'samuelvelicharla@gmail.com' && password === 'Samuel@2006') {
-      const mockUser = {
-        id: '1',
-        email: email,
-        name: 'Samuel Velicharla',
-      };
-      setUser(mockUser);
-      localStorage.setItem('mockUser', JSON.stringify(mockUser));
-    } else {
-      throw new Error('Invalid credentials. Default account only.');
-    }
+    // In production, this should validate against a real authentication backend
+    // For demo purposes, we accept any credentials and create a session
+    const mockUser = {
+      id: '1',
+      email: email,
+      name: email.split('@')[0],
+    };
+    setUser(mockUser);
+    localStorage.setItem('mockUser', JSON.stringify(mockUser));
   };
 
   const signup = async (email: string, password: string, name: string) => {

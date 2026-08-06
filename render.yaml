@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: stockquery-ai-backend
+    runtime: python
+    plan: free
+    buildCommand: cd ai_agent_backend && pip install -r requirements.txt
+    startCommand: cd ai_agent_backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: STOCKQUERY_DB_PATH
+        value: /data/agent_inventory.db
+      - key: STOCKQUERY_CHROMA_PATH
+        value: /data/chroma_db
+      - key: OPENAI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: STOCKQUERY_LLM_MODEL
+        value: gemini-1.5-flash
+      - key: STOCKQUERY_LOW_STOCK_THRESHOLD
+        value: 10
+      - key: STOCKQUERY_SESSION_HISTORY_LIMIT
+        value: 20
+      - key: STOCKQUERY_CORS_ORIGINS
+        value: https://stockqueryai.vercel.app,https://stockqueryai-1-igzs.onrender.com
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    healthCheckPath: /

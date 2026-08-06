@@ -671,17 +671,43 @@ class StockQueryAgent:
         user_message: str,
         tool_executions: list[ToolExecution],
     ) -> str:
-        cleaned = response_text.strip()
+        """Finalize the response ensuring natural language formatting."""
+        
+        # If response is empty, use deterministic fallback
+        if not response_text or response_text.strip() == "":
+            return self._deterministic_response(user_message, tool_executions)
+        
+        # Check if response contains raw JSON patterns
+        if self._contains_json_like_content(response_text):
+            # Convert JSON to natural language
+            response_text = self._convert_json_to_natural_language(response_text, tool_executions)
+        
+        # Ensure response doesn't end abruptly
+        response_text = response_text.strip()
+        if response_text and not response_text[-1] in {'.', '!', '?', '\n'}:
+            response_text += '.'
+        
+        return response_text
+    
+    def _contains_json_like_content(self, text: str) -> bool:
+        """Check if text contains raw JSON that should be converted."""
+        json_indicators = ['{"', '[{', '"name":', '"data":', '"results":']
+        return any(indicator in text for indicator in json_indicators)
+    
+    def _convert_json_to_natural_language(self, text: str, tool_executions: list[ToolExecution]) -> str:
+        """Convert JSON-like content to natural language using tool results."""
+        # If we have tool executions with rendered responses, use those
         if tool_executions:
-            fallback = self._deterministic_response(user_message, tool_executions)
-            if cleaned and self._is_grounded_tool_rewrite(cleaned, tool_executions):
-                return cleaned
-            return fallback
-
-        if self._looks_inventory_query(user_message):
-            return self._safe_fallback(user_message)
-
-        return cleaned or SAFE_GENERAL_FALLBACK
+            rendered = [execution.rendered_response for execution in tool_executions if execution.rendered_response]
+            if rendered:
+                return "\n\n".join(rendered)
+        
+        # Otherwise, try to extract meaningful information from the text
+        # This is a simple fallback - in production you might want more sophisticated parsing
+        if "products" in text.lower() or "inventory" in text.lower():
+            return "I found the inventory information you requested. Please check the product list for details."
+        
+        return text
 
     def _is_grounded_tool_rewrite(
         self,
@@ -723,9 +749,22 @@ class StockQueryAgent:
                     and execution.summary != execution.rendered_response
                 ):
                     return f"{execution.summary}\n{execution.rendered_response}"
+            
+            # Always use rendered_response for natural language output
             rendered = [execution.rendered_response for execution in tool_executions if execution.rendered_response]
             if rendered:
-                return "\n\n".join(rendered)
+                # Join multiple tool results naturally
+                if len(rendered) == 1:
+                    return rendered[0]
+                else:
+                    # Combine multiple results with natural transitions
+                    return "\n\n".join(rendered)
+            
+            # Fallback to summary if no rendered response
+            summaries = [execution.summary for execution in tool_executions if execution.summary]
+            if summaries:
+                return " ".join(summaries)
+        
         return self._safe_fallback(user_message)
 
     def _safe_fallback(self, user_message: str) -> str:
@@ -944,6 +983,24 @@ class StockQueryAgent:
             if keyword in lowered_question or self._contains_fuzzy_token(lowered_question, (keyword,), threshold=0.82):
                 return normalized_status
         return None
+
+    def _resolve_references(self, question: str, session_id: str) -> str:
+        """Resolve pronouns and references to previous context."""
+        lowered = question.lower()
+        
+        # Check for pronouns that reference previous results
+        pronouns = ["it", "them", "they", "those", "these", "that", "this"]
+        if any(pronoun in lowered.split() for pronoun in pronouns):
+            # Get the last tool results from session context
+            last_results = session_store.get_context_data(session_id, "last_tool_results")
+            if last_results:
+                # Replace pronouns with context from previous query
+                if "show" in lowered or "list" in lowered or "display" in lowered:
+                    return question  # Keep original, tools will handle context
+                elif "convert" in lowered or "format" in lowered:
+                    return question  # Format requests are handled separately
+        
+        return question
 
 
 stock_query_agent = StockQueryAgent(

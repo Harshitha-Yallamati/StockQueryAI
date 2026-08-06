@@ -892,6 +892,13 @@ def _utc_timestamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def is_database_empty() -> bool:
+    """Check if the database has any products."""
+    with closing(get_db_connection()) as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM products").fetchone()
+        return int(row["total"] or 0) == 0
+
+
 if __name__ == "__main__":
     init_db()
     print("Database initialized and verified.")

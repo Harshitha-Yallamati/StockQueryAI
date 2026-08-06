@@ -42,16 +42,30 @@ def get_settings() -> Settings:
         ).split(",")
         if origin.strip()
     )
+    
+    # Validate critical environment variables
+    llm_base_url = os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1")
+    llm_api_key = os.getenv("OPENAI_API_KEY", "ollama")
+    
+    # Warn if using default API key in production-like environment
+    if llm_api_key == "ollama" and "render" in llm_base_url.lower():
+        import warnings
+        warnings.warn(
+            "Using default 'ollama' API key with non-Ollama endpoint. "
+            "This may cause API failures. Set OPENAI_API_KEY environment variable.",
+            RuntimeWarning
+        )
+    
     return Settings(
         app_name="StockQuery AI Agent Backend",
         app_version="2.0.0",
         database_path=_backend_relative_path(os.getenv("STOCKQUERY_DB_PATH", "agent_inventory.db")),
         chroma_path=_backend_relative_path(os.getenv("STOCKQUERY_CHROMA_PATH", "chroma_db")),
-        llm_base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1"),
-        llm_api_key=os.getenv("OPENAI_API_KEY", "ollama"),
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
         llm_model=os.getenv("STOCKQUERY_LLM_MODEL", "qwen2.5:1.5b"),
         llm_timeout_seconds=float(os.getenv("STOCKQUERY_LLM_TIMEOUT_SECONDS", "60")),
         low_stock_threshold=int(os.getenv("STOCKQUERY_LOW_STOCK_THRESHOLD", "10")),
-        session_history_limit=int(os.getenv("STOCKQUERY_SESSION_HISTORY_LIMIT", "12")),
+        session_history_limit=int(os.getenv("STOCKQUERY_SESSION_HISTORY_LIMIT", "20")),
         cors_origins=origins,
     )
